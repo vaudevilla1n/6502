@@ -105,6 +105,10 @@ int main(int argc, char **argv)
 	struct machine m = { 0 };
 	machine_init(&m, rom, size);
 
+	{
+		m.memory[0x1000] = 0x69;
+	}
+	
 	machine_run(&m);
 
 	log_machine_info(&m);
@@ -191,7 +195,7 @@ static void machine_init(struct machine *m, const uint8_t *rom, size_t size)
 	m->reg[REG_SP] = STACK_PAGE_START;
 }
 
-static inline uint8_t machine_step_byte(struct machine *m)
+static uint8_t machine_step_u8(struct machine *m)
 {
 	if (m->pc + 1U > m->rom_size) {
 		m->state = MACHINE_OUT_OF_BOUNDS;
@@ -201,7 +205,7 @@ static inline uint8_t machine_step_byte(struct machine *m)
 	}
 }
 
-static inline uint8_t machine_step_short(struct machine *m) {
+static uint16_t machine_step_u16(struct machine *m) {
 	if (m->pc + 2U > m->rom_size) {
 		m->state = MACHINE_OUT_OF_BOUNDS;
 		return 0;
@@ -216,43 +220,43 @@ static void load_accumulator(struct machine *m, enum addr_mode mode)
 {
 	switch (mode) {
 	case ADDR_MODE_IMM: {
-		m->reg[REG_ACC] = machine_step_byte(m);
+		m->reg[REG_ACC] = machine_step_u8(m);
 	} break;
 
 	case ADDR_MODE_ZERO: {
-		uint8_t addr = machine_step_byte(m);
+		uint8_t addr = machine_step_u8(m);
 		m->reg[REG_ACC] = m->zero_page[addr];
 	} break;
 
 	case ADDR_MODE_ZERO_X: {
-		uint8_t addr = machine_step_byte(m) + m->reg[REG_X];
+		uint8_t addr = machine_step_u8(m) + m->reg[REG_X];
 		m->reg[REG_ACC] = m->zero_page[addr];
 	} break;
 
 	case ADDR_MODE_ABS: {
-		uint16_t addr = machine_step_short(m);
+		uint16_t addr = machine_step_u16(m);
 		m->reg[REG_ACC] = m->memory[addr];
 	} break;
 
 	case ADDR_MODE_ABS_X: {
-		uint16_t addr = machine_step_short(m) + m->reg[REG_X];
+		uint16_t addr = machine_step_u16(m) + m->reg[REG_X];
 		m->reg[REG_ACC] = m->memory[addr];
 	} break;
 
 	case ADDR_MODE_ABS_Y: {
-		uint16_t addr = machine_step_short(m) + m->reg[REG_Y];
+		uint16_t addr = machine_step_u16(m) + m->reg[REG_Y];
 		m->reg[REG_ACC] = m->memory[addr];
 	} break;
 
 	case ADDR_MODE_IND_X: {
-		uint8_t addr = machine_step_byte(m) + m->reg[REG_X];
+		uint8_t addr = machine_step_u8(m) + m->reg[REG_X];
 		uint8_t addr_zp = m->zero_page[addr];
 		
 		m->reg[REG_ACC] = m->zero_page[addr_zp];
 	} break;
 
 	case ADDR_MODE_IND_Y: {
-		uint8_t addr_zp = machine_step_byte(m);
+		uint8_t addr_zp = machine_step_u8(m);
 		uint8_t addr_lo = m->zero_page[addr_zp];
 		uint8_t addr = (m->reg[REG_Y] << 8) | addr_lo;
 		m->reg[REG_ACC] = m->memory[addr];
@@ -264,7 +268,7 @@ static void load_accumulator(struct machine *m, enum addr_mode mode)
 
 static void machine_execute_instruction(struct machine *m)
 {
-	uint8_t op = machine_step_byte(m);
+	uint8_t op = machine_step_u8(m);
 	
 	switch (op) {
 	case 0xA9: load_accumulator(m, ADDR_MODE_IMM); return;
