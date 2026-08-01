@@ -60,7 +60,7 @@ struct machine {
 	enum machine_state state;
 	
 	size_t rom_size;
-	const uint8_t *rom;
+	uint8_t *rom;
 	
 	uint16_t pc;
 	uint8_t reg[TOTAL_CPU_REGS];
@@ -70,7 +70,9 @@ struct machine {
 	uint8_t memory[MAX_AVAILABLE_MEMORY];
 };
 
-static void machine_init(struct machine *m, const uint8_t *rom, size_t size);
+#define MACHINE_INVALID_ADDRESS(m)	((m)->memory)
+
+static void machine_init(struct machine *m, uint8_t *rom, size_t size);
 static int machine_run(struct machine *m);
 
 static uint8_t *read_bytes(const char *path, size_t *datlen);
@@ -184,7 +186,7 @@ static void log_machine_info(const struct machine *m)
 	printf("Y register: %02hhx\n", m->reg[REG_Y]);
 }
 
-static void machine_init(struct machine *m, const uint8_t *rom, size_t size)
+static void machine_init(struct machine *m, uint8_t *rom, size_t size)
 {
 	m->state = MACHINE_OK;
 	m->rom = rom;
@@ -192,75 +194,85 @@ static void machine_init(struct machine *m, const uint8_t *rom, size_t size)
 	m->reg[REG_SP] = STACK_PAGE_START;
 }
 
-static uint8_t machine_step_u8(struct machine *m)
+/*
+  since the error is already propagated through the machine structure
+  itself, these functions (machine_step_*) simply return a pointer to the
+  start of the machine's memory region so that a valid pointer can be
+  derefenced in all cases
+ */
+
+static uint8_t *machine_step_u8(struct machine *m)
 {
 	if (m->pc + 1U <= m->rom_size) {
-		return m->rom[m->pc++];
+		return m->rom + m->pc++;
 	} else {
 		m->state = MACHINE_OUT_OF_BOUNDS;
-		return 0;
+		return MACHINE_INVALID_ADDRESS(m);
 	}
 }
 
-static uint16_t machine_step_u16(struct machine *m) {
+static uint8_t *machine_step_u16(struct machine *m) {
 	if (m->pc + 2U <= m->rom_size) {
-		uint8_t lo = m->rom[m->pc++];
-		uint8_t hi = m->rom[m->pc++];
-		return (hi << 8) | lo;
+		uint8_t *mem = m->rom + m->pc;
+		m->pc += 2;
+		return mem;
 	} else {
 		m->state = MACHINE_OUT_OF_BOUNDS;
-		return 0;
+		return MACHINE_INVALID_ADDRESS(m);
 	}
 }
 
-static uint8_t machine_read_address(struct machine *m, enum addr_mode mode)
+static uint8_t *machine_get_address(struct machine *m, enum addr_mode mode)
 {
+	/*
+	  all bytes of 6502 machine code are in little endian format 
+	 */
 	switch (mode) {
 	case ADDR_MODE_IMM: {
 		return machine_step_u8(m);
 	}
 
 	case ADDR_MODE_ZERO: {
-		uint8_t addr = machine_step_u8(m);
-		return m->zero_page[addr];
+		uint8_t off = *machine_step_u8(m);
+		return &m->zero_page[off];
 	}
 
 	case ADDR_MODE_ZERO_X: {
-		uint8_t addr = machine_step_u8(m) + m->reg[REG_X];
-		return m->zero_page[addr];
+		uint8_t off = *machine_step_u8(m) + m->reg[REG_X];
+		return &m->zero_page[off];
 	}
 
 	case ADDR_MODE_ZERO_Y: {
-		uint8_t addr = machine_step_u8(m) + m->reg[REG_Y];
-		return m->zero_page[addr];
+		uint8_t off = *machine_step_u8(m) + m->reg[REG_Y];
+		return &m->zero_page[off];
 	}
 
 	case ADDR_MODE_ABS: {
-		uint16_t addr = machine_step_u16(m);
-		return m->memory[addr];
+		uint16_t addr = htole16(*machine_step_u16(m));
+		return &m->memory[addr];
 	}
 
 	case ADDR_MODE_ABS_X: {
-		uint16_t addr = machine_step_u16(m) + m->reg[REG_X];
-		return m->memory[addr];
+		uint16_t addr = htole16(*machine_step_u16(m)) + m->reg[REG_X];
+		return &m->memory[addr];
 	}
 
 	case ADDR_MODE_ABS_Y: {
-		uint16_t addr = machine_step_u16(m) + m->reg[REG_Y];
-		return m->memory[addr];
+		uint16_t addr = htole16(*machine_step_u16(m)) + m->reg[REG_Y];
+		return &m->memory[addr];
 	}
 
 	case ADDR_MODE_IND_X: {
-		uint8_t addr = machine_step_u8(m) + m->reg[REG_X];
+		uint8_t addr = *machine_step_u8(m) + m->reg[REG_X];
 		uint8_t addr_zp = m->zero_page[addr];
-		return m->zero_page[addr_zp];
+		return &m->zero_page[addr_zp];
 	}
 
 	case ADDR_MODE_IND_Y: {
-		uint8_t addr_zp = machine_step_u8(m);
+		uint8_t addr_zp = *machine_step_u8(m);
 		uint8_t addr_lo = m->zero_page[addr_zp];
 		uint8_t addr = (m->reg[REG_Y] << 8) | addr_lo;
-		return m->memory[addr];
+		return &m->memory[addr];
 	}
 
 	default: __builtin_unreachable();
@@ -281,25 +293,25 @@ static inline void machine_update_flags(struct machine *m,
 
 static inline void load_accumulator(struct machine *m, enum addr_mode mode)
 {
-	m->reg[REG_ACC] = machine_read_address(m, mode);
+	m->reg[REG_ACC] = *machine_get_address(m, mode);
 	machine_update_flags(m, PS_ZERO | PS_NEGATIVE, m->reg[REG_ACC]);
 }
 
 static inline void load_register_x(struct machine *m, enum addr_mode mode)
 {
-	m->reg[REG_X] = machine_read_address(m, mode);
+	m->reg[REG_X] = *machine_get_address(m, mode);
 	machine_update_flags(m, PS_ZERO | PS_NEGATIVE, m->reg[REG_X]);
 }
 
 static inline void load_register_y(struct machine *m, enum addr_mode mode)
 {
-	m->reg[REG_Y] = machine_read_address(m, mode);
+	m->reg[REG_Y] = *machine_get_address(m, mode);
 	machine_update_flags(m, PS_ZERO | PS_NEGATIVE, m->reg[REG_Y]);
 }
 
 static void machine_execute_instruction(struct machine *m)
 {
-	uint8_t op = machine_step_u8(m);
+	uint8_t op = *machine_step_u8(m);
 	
 	switch (op) {
 	case 0xA9: load_accumulator(m, ADDR_MODE_IMM); return;
