@@ -23,6 +23,7 @@ enum addr_mode {
 	ADDR_MODE_IMM,
 	ADDR_MODE_ZERO,
 	ADDR_MODE_ZERO_X,
+	ADDR_MODE_ZERO_Y,
 	ADDR_MODE_ABS,
 	ADDR_MODE_ABS_X,
 	ADDR_MODE_ABS_Y,
@@ -229,6 +230,11 @@ static uint8_t machine_read_address(struct machine *m, enum addr_mode mode)
 		return m->zero_page[addr];
 	}
 
+	case ADDR_MODE_ZERO_Y: {
+		uint8_t addr = machine_step_u8(m) + m->reg[REG_Y];
+		return m->zero_page[addr];
+	}
+
 	case ADDR_MODE_ABS: {
 		uint16_t addr = machine_step_u16(m);
 		return m->memory[addr];
@@ -279,6 +285,12 @@ static inline void load_accumulator(struct machine *m, enum addr_mode mode)
 	machine_update_flags(m, PS_ZERO | PS_NEGATIVE, m->reg[REG_ACC]);
 }
 
+static inline void load_register_x(struct machine *m, enum addr_mode mode)
+{
+	m->reg[REG_X] = machine_read_address(m, mode);
+	machine_update_flags(m, PS_ZERO | PS_NEGATIVE, m->reg[REG_X]);
+}
+
 static void machine_execute_instruction(struct machine *m)
 {
 	uint8_t op = machine_step_u8(m);
@@ -292,6 +304,12 @@ static void machine_execute_instruction(struct machine *m)
 	case 0xB9: load_accumulator(m, ADDR_MODE_ABS_Y); return;
 	case 0xA1: load_accumulator(m, ADDR_MODE_IND_X); return;
 	case 0xB1: load_accumulator(m, ADDR_MODE_IND_Y); return;
+
+	case 0xA2: load_register_x(m, ADDR_MODE_IMM); return;
+	case 0xA6: load_register_x(m, ADDR_MODE_ZERO); return;
+	case 0xB6: load_register_x(m, ADDR_MODE_ZERO_Y); return;
+	case 0xAE: load_register_x(m, ADDR_MODE_ABS); return;
+	case 0xBE: load_register_x(m, ADDR_MODE_ABS_Y); return;
 		
 	default:
 		m->state = MACHINE_INVALID_OPCODE;
