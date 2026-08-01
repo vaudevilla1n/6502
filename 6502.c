@@ -31,13 +31,13 @@ enum addr_mode {
 };
 
 enum {
-	PR_CARRY		= 0001,
-	PR_ZERO			= 0002,
-	PR_INTERRUPT_DISABLE	= 0004,
-	PR_DECIMAL_MODE		= 0010,
-	PR_BREAK		= 0020,
-	PR_OVERFLOW		= 0040,
-	PR_NEGATIVE		= 0100,
+	PS_CARRY		= 0001,
+	PS_ZERO			= 0002,
+	PS_INTERRUPT_DISABLE	= 0004,
+	PS_DECIMAL_MODE		= 0010,
+	PS_BREAK		= 0020,
+	PS_OVERFLOW		= 0040,
+	PS_NEGATIVE		= 0100,
 };
 
 enum proc_register {
@@ -164,19 +164,19 @@ static void log_machine_info(const struct machine *m)
 	
 	printf("processor status:\n");
 	printf("  carry flag: %d\n",
-	       (m->reg[REG_PS] & PR_CARRY) != 0);
+	       (m->reg[REG_PS] & PS_CARRY) != 0);
 	printf("  zero flag: %d\n",
-	       (m->reg[REG_PS] & PR_ZERO) != 0);
+	       (m->reg[REG_PS] & PS_ZERO) != 0);
 	printf("  decimal mode: %d\n",
-	       (m->reg[REG_PS] & PR_DECIMAL_MODE) != 0);
+	       (m->reg[REG_PS] & PS_DECIMAL_MODE) != 0);
 	printf("  interrupt disable: %d\n",
-	       (m->reg[REG_PS] & PR_INTERRUPT_DISABLE) != 0);
+	       (m->reg[REG_PS] & PS_INTERRUPT_DISABLE) != 0);
 	printf("  break: %d\n",
-	       (m->reg[REG_PS] & PR_BREAK) != 0);
+	       (m->reg[REG_PS] & PS_BREAK) != 0);
 	printf("  overflow flag: %d\n",
-	       (m->reg[REG_PS] & PR_OVERFLOW) != 0);
+	       (m->reg[REG_PS] & PS_OVERFLOW) != 0);
 	printf("  negative flag: %d\n",
-	       (m->reg[REG_PS] & PR_NEGATIVE) != 0);
+	       (m->reg[REG_PS] & PS_NEGATIVE) != 0);
 
 	printf("stack pointer: 0x%hhx\n", m->reg[REG_SP]);
 	printf("X register: %02hhx\n", m->reg[REG_X]);
@@ -261,9 +261,22 @@ static uint8_t machine_read_address(struct machine *m, enum addr_mode mode)
 	}
 }
 
+static inline void machine_update_flags(struct machine *m,
+					uint8_t flags, uint8_t v)
+{
+	/*
+	  remember to add the rest when needed!!!
+	 */
+	if ((flags & PS_ZERO) && (v == 0))
+		m->reg[REG_PS] |= PS_ZERO;
+	if ((flags & PS_NEGATIVE) && ((int8_t)v < 0))
+		m->reg[REG_PS] |= PS_NEGATIVE;
+}
+
 static inline void load_accumulator(struct machine *m, enum addr_mode mode)
 {
 	m->reg[REG_ACC] = machine_read_address(m, mode);
+	machine_update_flags(m, PS_ZERO | PS_NEGATIVE, m->reg[REG_ACC]);
 }
 
 static void machine_execute_instruction(struct machine *m)
