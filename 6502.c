@@ -19,7 +19,16 @@
 #define STACK_PAGE_START	0xFF
 #define MAX_AVAILABLE_MEMORY	KB(64)
 
-#define NEGATIVE_FLAG_MASK	0x80
+enum addr_mode {
+	ADDR_MODE_IMM,
+	ADDR_MODE_ZERO,
+	ADDR_MODE_ZERO_X,
+	ADDR_MODE_ABS,
+	ADDR_MODE_ABS_X,
+	ADDR_MODE_ABS_Y,
+	ADDR_MODE_IND_X,
+	ADDR_MODE_IND_Y,
+};
 
 enum {
 	PR_CARRY		= 0001,
@@ -31,12 +40,12 @@ enum {
 	PR_NEGATIVE		= 0100,
 };
 
-enum cpu_register {
-	REG_AC,
-	REG_PR,
-	REG_SR,
-	REG_XR,
-	REG_YR,
+enum proc_register {
+	REG_ACC,
+	REG_PS,
+	REG_SP,
+	REG_X,
+	REG_Y,
 	TOTAL_CPU_REGS,
 };
 
@@ -57,8 +66,7 @@ struct machine {
 	
 	uint8_t zero_page[ZERO_PAGE_LEN];
 	uint8_t stack[STACK_PAGE_LEN];
-	
-	uint8_t ram[MAX_AVAILABLE_MEMORY];
+	uint8_t memory[MAX_AVAILABLE_MEMORY];
 };
 
 static void machine_init(struct machine *m, const uint8_t *rom, size_t size);
@@ -152,27 +160,27 @@ static void log_machine_info(const struct machine *m)
 	printf("\n");
 	
 	printf("program counter: 0x%02hx\n", m->pc);
-	printf("accumulator: %02hhx\n", m->reg[REG_AC]);
+	printf("accumulator: %02hhx\n", m->reg[REG_ACC]);
 	
 	printf("processor status:\n");
 	printf("  carry flag: %d\n",
-	       (m->reg[REG_PR] & PR_CARRY) != 0);
+	       (m->reg[REG_PS] & PR_CARRY) != 0);
 	printf("  zero flag: %d\n",
-	       (m->reg[REG_PR] & PR_ZERO) != 0);
+	       (m->reg[REG_PS] & PR_ZERO) != 0);
 	printf("  decimal mode: %d\n",
-	       (m->reg[REG_PR] & PR_DECIMAL_MODE) != 0);
+	       (m->reg[REG_PS] & PR_DECIMAL_MODE) != 0);
 	printf("  interrupt disable: %d\n",
-	       (m->reg[REG_PR] & PR_INTERRUPT_DISABLE) != 0);
+	       (m->reg[REG_PS] & PR_INTERRUPT_DISABLE) != 0);
 	printf("  break: %d\n",
-	       (m->reg[REG_PR] & PR_BREAK) != 0);
+	       (m->reg[REG_PS] & PR_BREAK) != 0);
 	printf("  overflow flag: %d\n",
-	       (m->reg[REG_PR] & PR_OVERFLOW) != 0);
+	       (m->reg[REG_PS] & PR_OVERFLOW) != 0);
 	printf("  negative flag: %d\n",
-	       (m->reg[REG_PR] & PR_NEGATIVE) != 0);
+	       (m->reg[REG_PS] & PR_NEGATIVE) != 0);
 
-	printf("stack pointer: 0x%hhx\n", m->reg[REG_SR]);
-	printf("X register: %02hhx\n", m->reg[REG_XR]);
-	printf("Y register: %02hhx\n", m->reg[REG_YR]);
+	printf("stack pointer: 0x%hhx\n", m->reg[REG_SP]);
+	printf("X register: %02hhx\n", m->reg[REG_X]);
+	printf("Y register: %02hhx\n", m->reg[REG_Y]);
 }
 
 static void machine_init(struct machine *m, const uint8_t *rom, size_t size)
@@ -180,12 +188,12 @@ static void machine_init(struct machine *m, const uint8_t *rom, size_t size)
 	m->state = MACHINE_OK;
 	m->rom = rom;
 	m->rom_size = size;
-	m->reg[REG_SR] = STACK_PAGE_START;
+	m->reg[REG_SP] = STACK_PAGE_START;
 }
 
-static inline uint8_t machine_step_pc(struct machine *m)
+static inline uint8_t machine_step_byte(struct machine *m)
 {
-	if (m->pc >= m->rom_size) {
+	if (m->pc + 1U > m->rom_size) {
 		m->state = MACHINE_OUT_OF_BOUNDS;
 		return 0;
 	} else {
@@ -193,36 +201,80 @@ static inline uint8_t machine_step_pc(struct machine *m)
 	}
 }
 
-static inline void check_zero_flag(struct machine *m, uint8_t v)
-{
-	if (v == 0)
-		m->reg[REG_PR] |= PR_ZERO;
+static inline uint8_t machine_step_short(struct machine *m) {
+	if (m->pc + 2U > m->rom_size) {
+		m->state = MACHINE_OUT_OF_BOUNDS;
+		return 0;
+	} else {
+		uint8_t lo = m->rom[m->pc++];
+		uint8_t hi = m->rom[m->pc++];
+		return (hi << 8) | lo;
+	}
 }
 
-static inline void check_negative_flag(struct machine *m, uint8_t v)
+static void load_accumulator(struct machine *m, enum addr_mode mode)
 {
-	if (v & NEGATIVE_FLAG_MASK)
-		m->reg[REG_PR] |= PR_NEGATIVE;
-}
+	switch (mode) {
+	case ADDR_MODE_IMM: {
+		m->reg[REG_ACC] = machine_step_byte(m);
+	} break;
 
-static inline void load_accumulator_immediate(struct machine *m)
-{
-	uint8_t imm = machine_step_pc(m);
-	if (m->state != MACHINE_OK)
-		return;
-	
-	m->reg[REG_AC] = imm;
+	case ADDR_MODE_ZERO: {
+		uint8_t addr = machine_step_byte(m);
+		m->reg[REG_ACC] = m->zero_page[addr];
+	} break;
 
-	check_zero_flag(m, m->reg[REG_AC]);
-	check_negative_flag(m, m->reg[REG_AC]);
+	case ADDR_MODE_ZERO_X: {
+		uint8_t addr = machine_step_byte(m) + m->reg[REG_X];
+		m->reg[REG_ACC] = m->zero_page[addr];
+	} break;
+
+	case ADDR_MODE_ABS: {
+		uint16_t addr = machine_step_short(m);
+		m->reg[REG_ACC] = m->memory[addr];
+	} break;
+
+	case ADDR_MODE_ABS_X: {
+		uint16_t addr = machine_step_short(m) + m->reg[REG_X];
+		m->reg[REG_ACC] = m->memory[addr];
+	} break;
+
+	case ADDR_MODE_ABS_Y: {
+		uint16_t addr = machine_step_short(m) + m->reg[REG_Y];
+		m->reg[REG_ACC] = m->memory[addr];
+	} break;
+
+	case ADDR_MODE_IND_X: {
+		uint8_t addr = machine_step_byte(m) + m->reg[REG_X];
+		uint8_t addr_zp = m->zero_page[addr];
+		
+		m->reg[REG_ACC] = m->zero_page[addr_zp];
+	} break;
+
+	case ADDR_MODE_IND_Y: {
+		uint8_t addr_zp = machine_step_byte(m);
+		uint8_t addr_lo = m->zero_page[addr_zp];
+		uint8_t addr = (m->reg[REG_Y] << 8) | addr_lo;
+		m->reg[REG_ACC] = m->memory[addr];
+	} break;
+
+	default: __builtin_unreachable();
+	}
 }
 
 static void machine_execute_instruction(struct machine *m)
 {
-	uint8_t op = machine_step_pc(m);
+	uint8_t op = machine_step_byte(m);
 	
 	switch (op) {
-	case 0xA9: load_accumulator_immediate(m); return;
+	case 0xA9: load_accumulator(m, ADDR_MODE_IMM); return;
+	case 0xA5: load_accumulator(m, ADDR_MODE_ZERO); return;
+	case 0xB5: load_accumulator(m, ADDR_MODE_ZERO_X); return;
+	case 0xAD: load_accumulator(m, ADDR_MODE_ABS); return;
+	case 0xBD: load_accumulator(m, ADDR_MODE_ABS_X); return;
+	case 0xB9: load_accumulator(m, ADDR_MODE_ABS_Y); return;
+	case 0xA1: load_accumulator(m, ADDR_MODE_IND_X); return;
+	case 0xB1: load_accumulator(m, ADDR_MODE_IND_Y); return;
 		
 	default:
 		m->state = MACHINE_INVALID_OPCODE;
