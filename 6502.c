@@ -291,6 +291,12 @@ static inline void load_register_x(struct machine *m, enum addr_mode mode)
 	machine_update_flags(m, PS_ZERO | PS_NEGATIVE, m->reg[REG_X]);
 }
 
+static inline void load_register_y(struct machine *m, enum addr_mode mode)
+{
+	m->reg[REG_Y] = machine_read_address(m, mode);
+	machine_update_flags(m, PS_ZERO | PS_NEGATIVE, m->reg[REG_Y]);
+}
+
 static void machine_execute_instruction(struct machine *m)
 {
 	uint8_t op = machine_step_u8(m);
@@ -310,6 +316,12 @@ static void machine_execute_instruction(struct machine *m)
 	case 0xB6: load_register_x(m, ADDR_MODE_ZERO_Y); return;
 	case 0xAE: load_register_x(m, ADDR_MODE_ABS); return;
 	case 0xBE: load_register_x(m, ADDR_MODE_ABS_Y); return;
+
+	case 0xA0: load_register_y(m, ADDR_MODE_IMM); return;
+	case 0xA4: load_register_y(m, ADDR_MODE_ZERO); return;
+	case 0xB4: load_register_y(m, ADDR_MODE_ZERO_X); return;
+	case 0xAC: load_register_y(m, ADDR_MODE_ABS); return;
+	case 0xBC: load_register_y(m, ADDR_MODE_ABS_X); return;
 		
 	default:
 		m->state = MACHINE_INVALID_OPCODE;
