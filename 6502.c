@@ -48,6 +48,8 @@ enum machine_state {
 	MACHINE_OK,
 	MACHINE_INVALID_OPCODE,
 	MACHINE_OUT_OF_BOUNDS,
+	MACHINE_STACK_OVERFLOW,
+	MACHINE_STACK_UNDERFLOW,
 };
 
 enum machine_register {
@@ -116,9 +118,11 @@ static void log_machine_info(const struct machine *m)
 
 	printf("state: ");
 	switch (m->state) {
-	case MACHINE_OK:		printf("ok"); break;
-	case MACHINE_INVALID_OPCODE:	printf("invalid opcode"); break;
-	case MACHINE_OUT_OF_BOUNDS:	printf("out of bounds"); break;
+	case MACHINE_OK:		printf("OK"); break;
+	case MACHINE_INVALID_OPCODE:	printf("INVALID OPCODE"); break;
+	case MACHINE_OUT_OF_BOUNDS:	printf("OUT OF BOUNDS"); break;
+	case MACHINE_STACK_OVERFLOW:	printf("STACK OVERFLOW"); break;
+	case MACHINE_STACK_UNDERFLOW:	printf("STACK UNDERFLOW"); break;
 	default: unreachable("log_machine_info");
 	}
 	printf("\n");
@@ -220,6 +224,17 @@ static uint16_t step_u16(struct machine *m) {
 	}
 }
 
+static void set_processor_status(struct machine *m, uint8_t flags, uint8_t v)
+{
+	/*
+	  remember to add the rest when needed!!!
+	 */
+	if ((flags & PS_ZERO) && (v == 0))
+		m->reg[REG_PS] |= PS_ZERO;
+	if ((flags & PS_NEGATIVE) && ((int8_t)v < 0))
+		m->reg[REG_PS] |= PS_NEGATIVE;
+}
+
 static uint8_t *resolve_address(struct machine *m, enum addr_mode mode)
 {
 	switch (mode) {
@@ -279,36 +294,49 @@ static inline uint8_t load_byte(struct machine *m, enum addr_mode mode)
 		return *resolve_address(m, mode);
 }
 
-static inline void store_byte(struct machine *m,
-					     enum addr_mode mode, uint8_t v)
+static inline void store_byte(struct machine *m, enum addr_mode mode, uint8_t v)
 {
 	*resolve_address(m, mode) = v;
 }
 
-static inline void update_flags(struct machine *m,
-					uint8_t flags, uint8_t v)
-{
-	/*
-	  remember to add the rest when needed!!!
-	 */
-	if ((flags & PS_ZERO) && (v == 0))
-		m->reg[REG_PS] |= PS_ZERO;
-	if ((flags & PS_NEGATIVE) && ((int8_t)v < 0))
-		m->reg[REG_PS] |= PS_NEGATIVE;
-}
-
-static inline void load_register(struct machine *m,
-					 enum machine_register reg,
+static inline void load_register(struct machine *m, enum machine_register reg,
 					 enum addr_mode mode)
 {
 	m->reg[reg] = load_byte(m, mode);
-	update_flags(m, PS_ZERO | PS_NEGATIVE, m->reg[reg]);
+	set_processor_status(m, PS_ZERO | PS_NEGATIVE, m->reg[reg]);
 }
 
 static inline void store_register(struct machine *m, enum machine_register reg,
 				  enum addr_mode mode)
 {
 	store_byte(m, mode, m->reg[reg]);
+}
+
+static inline void transfer_registers(struct machine *m,
+				      enum machine_register reg_src,
+				      enum machine_register reg_dst)
+{
+	m->reg[reg_dst] = m->reg[reg_src];
+	if (reg_dst != REG_SP)
+		set_processor_status(m, PS_ZERO | PS_NEGATIVE, m->reg[reg_dst]);
+}
+
+static inline void stack_push_register(struct machine *m,
+				       enum machine_register reg)
+{
+	if (m->reg[REG_SP] != 0)
+		m->stack[(m->reg[REG_SP])--] = m->reg[reg];
+	else
+		m->state = MACHINE_STACK_OVERFLOW;
+}
+
+static inline void stack_pull_register(struct machine *m,
+				       enum machine_register reg)
+{
+	if (m->reg[REG_SP] + 1 <= STACK_PAGE_LEN)
+		m->reg[reg] = m->stack[++(m->reg[REG_SP])];
+	else
+		m->state = MACHINE_STACK_UNDERFLOW;
 }
 
 static void machine_execute_instruction(struct machine *m)
@@ -352,6 +380,18 @@ static void machine_execute_instruction(struct machine *m)
 	case 0x84: store_register(m, REG_Y, ADDR_MODE_ZERO); return;
 	case 0x94: store_register(m, REG_Y, ADDR_MODE_ZERO_X); return;
 	case 0x8C: store_register(m, REG_Y, ADDR_MODE_ABS); return;
+
+	case 0xAA: transfer_registers(m, REG_ACC, REG_X); return;
+	case 0xA8: transfer_registers(m, REG_ACC, REG_Y); return;
+	case 0x8A: transfer_registers(m, REG_X, REG_ACC); return;
+	case 0x98: transfer_registers(m, REG_Y, REG_ACC); return;
+
+	case 0xBA: transfer_registers(m, REG_SP, REG_X); return;
+	case 0x9A: transfer_registers(m, REG_X, REG_SP); return;
+	case 0x48: stack_push_register(m, REG_ACC); break;
+	case 0x08: stack_push_register(m, REG_PS); break;
+	case 0x68: stack_pull_register(m, REG_ACC); break;
+	case 0x28: stack_pull_register(m, REG_PS); break;
 
 	default:
 		m->state = MACHINE_INVALID_OPCODE;
