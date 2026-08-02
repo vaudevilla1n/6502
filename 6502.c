@@ -10,6 +10,9 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#define unreachable(f) \
+	do { fprintf(stderr, "unreachable: %s\n", f); abort(); } while (0)
+
 #define KB(n)	((n) * (2 << 10))
 
 #define CPU_CLOCK_RATE_US	3
@@ -41,7 +44,13 @@ enum {
 	PS_NEGATIVE		= 0100,
 };
 
-enum proc_register {
+enum machine_state {
+	MACHINE_OK,
+	MACHINE_INVALID_OPCODE,
+	MACHINE_OUT_OF_BOUNDS,
+};
+
+enum machine_register {
 	REG_ACC,
 	REG_PS,
 	REG_SP,
@@ -50,17 +59,11 @@ enum proc_register {
 	TOTAL_CPU_REGS,
 };
 
-enum machine_state {
-	MACHINE_OK,
-	MACHINE_INVALID_OPCODE,
-	MACHINE_OUT_OF_BOUNDS,
-};
-
 struct machine {
 	enum machine_state state;
 	
 	size_t rom_size;
-	uint8_t *rom;
+	const uint8_t *rom;
 	
 	uint16_t pc;
 	uint8_t reg[TOTAL_CPU_REGS];
@@ -70,51 +73,9 @@ struct machine {
 	uint8_t memory[MAX_AVAILABLE_MEMORY];
 };
 
-#define MACHINE_INVALID_ADDRESS(m)	((m)->memory)
-
-static void machine_init(struct machine *m, uint8_t *rom, size_t size);
+static void machine_init(struct machine *m, const uint8_t *rom, size_t size);
 static int machine_run(struct machine *m);
 
-static uint8_t *read_bytes(const char *path, size_t *datlen);
-
-static void log_machine_info(const struct machine *m);
-
-static inline void usage(void)
-{
-	fprintf(stderr, "usage: ./6502 ROM\n");
-}
-
-int main(int argc, char **argv)
-{
-	if (argc != 2) {
-		usage();
-		return 1;
-	}
-
-	const char *path = argv[1];
-
-	size_t size = 0;
-	uint8_t *rom = read_bytes(path, &size);
-	if (!rom) {
-		perror(path);
-		return 1;
-	}
-
-	if (size > MAX_AVAILABLE_MEMORY) {
-		fprintf(stderr, "%s is too large\n", path);
-		return 1;
-	}
-
-	struct machine m = { 0 };
-	machine_init(&m, rom, size);
-
-	machine_run(&m);
-
-	log_machine_info(&m);
-
-	return m.state != MACHINE_OK;
-}
-	
 static uint8_t *read_bytes(const char *path, size_t *datlen)
 {
 	FILE *f = fopen(path, "r");
@@ -158,7 +119,7 @@ static void log_machine_info(const struct machine *m)
 	case MACHINE_OK:		printf("ok"); break;
 	case MACHINE_INVALID_OPCODE:	printf("invalid opcode"); break;
 	case MACHINE_OUT_OF_BOUNDS:	printf("out of bounds"); break;
-	default: __builtin_unreachable();
+	default: unreachable("log_machine_info");
 	}
 	printf("\n");
 	
@@ -186,7 +147,43 @@ static void log_machine_info(const struct machine *m)
 	printf("Y register: %02hhx\n", m->reg[REG_Y]);
 }
 
-static void machine_init(struct machine *m, uint8_t *rom, size_t size)
+static inline void usage(void)
+{
+	fprintf(stderr, "usage: ./6502 ROM\n");
+}
+
+int main(int argc, char **argv)
+{
+	if (argc != 2) {
+		usage();
+		return 1;
+	}
+
+	const char *path = argv[1];
+
+	size_t size = 0;
+	uint8_t *rom = read_bytes(path, &size);
+	if (!rom) {
+		perror(path);
+		return 1;
+	}
+
+	if (size > MAX_AVAILABLE_MEMORY) {
+		fprintf(stderr, "%s is too large\n", path);
+		return 1;
+	}
+
+	struct machine m = { 0 };
+	machine_init(&m, rom, size);
+
+	machine_run(&m);
+
+	log_machine_info(&m);
+
+	return m.state != MACHINE_OK;
+}
+
+static void machine_init(struct machine *m, const uint8_t *rom, size_t size)
 {
 	m->state = MACHINE_OK;
 	m->rom = rom;
@@ -196,90 +193,99 @@ static void machine_init(struct machine *m, uint8_t *rom, size_t size)
 
 /*
   since the error is already propagated through the machine structure
-  itself, these functions (machine_step_*) simply return a pointer to the
-  start of the machine's memory region so that a valid pointer can be
-  derefenced in all cases
+  itself, these functions (machine_step_*) simply return 0
  */
 
-static uint8_t *machine_step_u8(struct machine *m)
+static uint8_t step_u8(struct machine *m)
 {
 	if (m->pc + 1U <= m->rom_size) {
-		return m->rom + m->pc++;
+		return m->rom[m->pc++];
 	} else {
 		m->state = MACHINE_OUT_OF_BOUNDS;
-		return MACHINE_INVALID_ADDRESS(m);
+		return 0;
 	}
 }
 
-static uint8_t *machine_step_u16(struct machine *m) {
-	if (m->pc + 2U <= m->rom_size) {
-		uint8_t *mem = m->rom + m->pc;
-		m->pc += 2;
-		return mem;
-	} else {
-		m->state = MACHINE_OUT_OF_BOUNDS;
-		return MACHINE_INVALID_ADDRESS(m);
-	}
-}
-
-static uint8_t *machine_get_address(struct machine *m, enum addr_mode mode)
-{
+static uint16_t step_u16(struct machine *m) {
 	/*
-	  all bytes of 6502 machine code are in little endian format 
+	  all values in 6502 machine code are in little endian format
 	 */
-	switch (mode) {
-	case ADDR_MODE_IMM: {
-		return machine_step_u8(m);
+	if (m->pc + 2U <= m->rom_size) {
+		uint8_t lo = m->rom[m->pc++];
+		uint8_t hi = m->rom[m->pc++];
+		return (hi << 8) | lo;
+	} else {
+		m->state = MACHINE_OUT_OF_BOUNDS;
+		return 0;
 	}
+}
 
+static uint8_t *resolve_address(struct machine *m, enum addr_mode mode)
+{
+	switch (mode) {
 	case ADDR_MODE_ZERO: {
-		uint8_t off = *machine_step_u8(m);
+		uint8_t off = step_u8(m);
 		return &m->zero_page[off];
 	}
 
 	case ADDR_MODE_ZERO_X: {
-		uint8_t off = *machine_step_u8(m) + m->reg[REG_X];
+		uint8_t off = step_u8(m) + m->reg[REG_X];
 		return &m->zero_page[off];
 	}
 
 	case ADDR_MODE_ZERO_Y: {
-		uint8_t off = *machine_step_u8(m) + m->reg[REG_Y];
+		uint8_t off = step_u8(m) + m->reg[REG_Y];
 		return &m->zero_page[off];
 	}
 
 	case ADDR_MODE_ABS: {
-		uint16_t addr = htole16(*machine_step_u16(m));
+		uint16_t addr = step_u16(m);
 		return &m->memory[addr];
 	}
 
 	case ADDR_MODE_ABS_X: {
-		uint16_t addr = htole16(*machine_step_u16(m)) + m->reg[REG_X];
+		uint16_t addr = step_u16(m) + m->reg[REG_X];
 		return &m->memory[addr];
 	}
 
 	case ADDR_MODE_ABS_Y: {
-		uint16_t addr = htole16(*machine_step_u16(m)) + m->reg[REG_Y];
+		uint16_t addr = step_u16(m) + m->reg[REG_Y];
 		return &m->memory[addr];
 	}
 
 	case ADDR_MODE_IND_X: {
-		uint8_t addr = *machine_step_u8(m) + m->reg[REG_X];
-		uint8_t addr_zp = m->zero_page[addr];
-		return &m->zero_page[addr_zp];
-	}
-
-	case ADDR_MODE_IND_Y: {
-		uint8_t addr_zp = *machine_step_u8(m);
-		uint8_t addr_lo = m->zero_page[addr_zp];
-		uint8_t addr = (m->reg[REG_Y] << 8) | addr_lo;
+		uint8_t off = step_u8(m) + m->reg[REG_X];
+		uint16_t addr = (m->zero_page[(uint8_t)(off + 1)] << 8)
+			| m->zero_page[off];
 		return &m->memory[addr];
 	}
 
-	default: __builtin_unreachable();
+	case ADDR_MODE_IND_Y: {
+		uint8_t off = step_u8(m);
+		uint16_t addr = (m->zero_page[(uint8_t)(off + 1)] << 8)
+			| m->zero_page[off];
+		return &m->memory[addr + m->reg[REG_Y]];
+	}
+
+	default: unreachable("machine_resolve_address");
 	}
 }
 
-static inline void machine_update_flags(struct machine *m,
+static inline uint8_t load_byte(struct machine *m, enum addr_mode mode)
+{
+	if (mode == ADDR_MODE_IMM)
+		return step_u8(m);
+	else
+		return *resolve_address(m, mode);
+}
+
+static inline void store_byte(struct machine *m,
+					     enum addr_mode mode, uint8_t v)
+{
+	*resolve_address(m, mode) = v;
+}
+
+static inline void update_flags(struct machine *m,
 					uint8_t flags, uint8_t v)
 {
 	/*
@@ -291,50 +297,62 @@ static inline void machine_update_flags(struct machine *m,
 		m->reg[REG_PS] |= PS_NEGATIVE;
 }
 
-static inline void load_accumulator(struct machine *m, enum addr_mode mode)
+static inline void load_register(struct machine *m,
+					 enum machine_register reg,
+					 enum addr_mode mode)
 {
-	m->reg[REG_ACC] = *machine_get_address(m, mode);
-	machine_update_flags(m, PS_ZERO | PS_NEGATIVE, m->reg[REG_ACC]);
+	m->reg[reg] = load_byte(m, mode);
+	update_flags(m, PS_ZERO | PS_NEGATIVE, m->reg[reg]);
 }
 
-static inline void load_register_x(struct machine *m, enum addr_mode mode)
+static inline void store_register(struct machine *m, enum machine_register reg,
+				  enum addr_mode mode)
 {
-	m->reg[REG_X] = *machine_get_address(m, mode);
-	machine_update_flags(m, PS_ZERO | PS_NEGATIVE, m->reg[REG_X]);
-}
-
-static inline void load_register_y(struct machine *m, enum addr_mode mode)
-{
-	m->reg[REG_Y] = *machine_get_address(m, mode);
-	machine_update_flags(m, PS_ZERO | PS_NEGATIVE, m->reg[REG_Y]);
+	store_byte(m, mode, m->reg[reg]);
 }
 
 static void machine_execute_instruction(struct machine *m)
 {
-	uint8_t op = *machine_step_u8(m);
+	uint8_t op = step_u8(m);
 	
 	switch (op) {
-	case 0xA9: load_accumulator(m, ADDR_MODE_IMM); return;
-	case 0xA5: load_accumulator(m, ADDR_MODE_ZERO); return;
-	case 0xB5: load_accumulator(m, ADDR_MODE_ZERO_X); return;
-	case 0xAD: load_accumulator(m, ADDR_MODE_ABS); return;
-	case 0xBD: load_accumulator(m, ADDR_MODE_ABS_X); return;
-	case 0xB9: load_accumulator(m, ADDR_MODE_ABS_Y); return;
-	case 0xA1: load_accumulator(m, ADDR_MODE_IND_X); return;
-	case 0xB1: load_accumulator(m, ADDR_MODE_IND_Y); return;
+	case 0xA9: load_register(m, REG_ACC, ADDR_MODE_IMM); return;
+	case 0xA5: load_register(m, REG_ACC, ADDR_MODE_ZERO); return;
+	case 0xB5: load_register(m, REG_ACC, ADDR_MODE_ZERO_X); return;
+	case 0xAD: load_register(m, REG_ACC, ADDR_MODE_ABS); return;
+	case 0xBD: load_register(m, REG_ACC, ADDR_MODE_ABS_X); return;
+	case 0xB9: load_register(m, REG_ACC, ADDR_MODE_ABS_Y); return;
+	case 0xA1: load_register(m, REG_ACC, ADDR_MODE_IND_X); return;
+	case 0xB1: load_register(m, REG_ACC, ADDR_MODE_IND_Y); return;
 
-	case 0xA2: load_register_x(m, ADDR_MODE_IMM); return;
-	case 0xA6: load_register_x(m, ADDR_MODE_ZERO); return;
-	case 0xB6: load_register_x(m, ADDR_MODE_ZERO_Y); return;
-	case 0xAE: load_register_x(m, ADDR_MODE_ABS); return;
-	case 0xBE: load_register_x(m, ADDR_MODE_ABS_Y); return;
+	case 0xA2: load_register(m, REG_X, ADDR_MODE_IMM); return;
+	case 0xA6: load_register(m, REG_X, ADDR_MODE_ZERO); return;
+	case 0xB6: load_register(m, REG_X, ADDR_MODE_ZERO_Y); return;
+	case 0xAE: load_register(m, REG_X, ADDR_MODE_ABS); return;
+	case 0xBE: load_register(m, REG_X, ADDR_MODE_ABS_Y); return;
 
-	case 0xA0: load_register_y(m, ADDR_MODE_IMM); return;
-	case 0xA4: load_register_y(m, ADDR_MODE_ZERO); return;
-	case 0xB4: load_register_y(m, ADDR_MODE_ZERO_X); return;
-	case 0xAC: load_register_y(m, ADDR_MODE_ABS); return;
-	case 0xBC: load_register_y(m, ADDR_MODE_ABS_X); return;
+	case 0xA0: load_register(m, REG_Y, ADDR_MODE_IMM); return;
+	case 0xA4: load_register(m, REG_Y, ADDR_MODE_ZERO); return;
+	case 0xB4: load_register(m, REG_Y, ADDR_MODE_ZERO_X); return;
+	case 0xAC: load_register(m, REG_Y, ADDR_MODE_ABS); return;
+	case 0xBC: load_register(m, REG_Y, ADDR_MODE_ABS_X); return;
 		
+	case 0x85: store_register(m, REG_ACC, ADDR_MODE_ZERO); return;
+	case 0x95: store_register(m, REG_ACC, ADDR_MODE_ZERO_X); return;
+	case 0x8D: store_register(m, REG_ACC, ADDR_MODE_ABS); return;
+	case 0x9D: store_register(m, REG_ACC, ADDR_MODE_ABS_X); return;
+	case 0x99: store_register(m, REG_ACC, ADDR_MODE_ABS_Y); return;
+	case 0x81: store_register(m, REG_ACC, ADDR_MODE_IND_X); return;
+	case 0x91: store_register(m, REG_ACC, ADDR_MODE_IND_Y); return;
+
+	case 0x86: store_register(m, REG_X, ADDR_MODE_ZERO); return;
+	case 0x96: store_register(m, REG_X, ADDR_MODE_ZERO_Y); return;
+	case 0x8E: store_register(m, REG_X, ADDR_MODE_ABS); return;
+
+	case 0x84: store_register(m, REG_Y, ADDR_MODE_ZERO); return;
+	case 0x94: store_register(m, REG_Y, ADDR_MODE_ZERO_X); return;
+	case 0x8C: store_register(m, REG_Y, ADDR_MODE_ABS); return;
+
 	default:
 		m->state = MACHINE_INVALID_OPCODE;
 		fprintf(stderr, "INVALID OPCODE (%hhx)\n", op);
