@@ -4,6 +4,7 @@
   referencing: 
 	  https://en.wikipedia.org/wiki/MOS_Technology_6502
 	  https://6502.org
+	  https://llx.com/Neil/a2/opcodes.html (!!!)
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -22,8 +23,24 @@
 #define STACK_PAGE_START	0xFF
 #define MAX_AVAILABLE_MEMORY	KB(64)
 
-enum addr_mode {
+#define OPCODE_AAA(o)	((o) >> 5)
+#define OPCODE_BBB(o)	(((o) >> 2) & 7)
+#define OPCODE_CC(o)	((o) & 3)
+
+enum instruction {
+	INS_INVALID,
+	INS_ORA, INS_AND, INS_EOR, INS_ADC,
+	INS_STA, INS_LDA, INS_CMP, INS_SBC,
+	INS_ASL, INS_ROS, INS_LSR, INS_ROR,
+	INS_STX, INS_LDX, INS_DEC, INS_INC,
+	INS_BIT, INS_JMP, INS_JMA, INS_STY,
+	INS_LDY, INS_CPY, INS_CPX,
+};
+
+enum addressing_mode {
+	ADDR_MODE_INVALID,
 	ADDR_MODE_IMM,
+	ADDR_MODE_ACC,
 	ADDR_MODE_ZERO,
 	ADDR_MODE_ZERO_X,
 	ADDR_MODE_ZERO_Y,
@@ -32,6 +49,48 @@ enum addr_mode {
 	ADDR_MODE_ABS_Y,
 	ADDR_MODE_IND_X,
 	ADDR_MODE_IND_Y,
+};
+
+#define INSTRUCTION_GROUPS	3
+#define INSTRUCTION_GROUP_MAX	8
+
+static enum instruction instruction_table[INSTRUCTION_GROUPS][INSTRUCTION_GROUP_MAX] = {
+	{ INS_BIT, INS_JMP, INS_JMA, INS_STY, INS_LDY, INS_CPY, INS_CPX, INS_INVALID },
+	{ INS_ORA, INS_AND, INS_EOR, INS_ADC, INS_STA, INS_LDA, INS_CMP, INS_SBC },
+	{ INS_ASL, INS_ROS, INS_LSR, INS_ROR, INS_STX, INS_LDX, INS_DEC, INS_INC },
+};
+
+static enum addressing_mode addressing_mode_table[INSTRUCTION_GROUPS][INSTRUCTION_GROUP_MAX] = {
+	{
+		ADDR_MODE_IMM,
+		ADDR_MODE_ZERO,
+		ADDR_MODE_INVALID,
+		ADDR_MODE_ABS,
+		ADDR_MODE_INVALID,
+		ADDR_MODE_ZERO_X,
+		ADDR_MODE_INVALID,
+		ADDR_MODE_ABS_X,
+	},
+	{
+		ADDR_MODE_ZERO_X,
+		ADDR_MODE_ZERO,
+		ADDR_MODE_IMM,
+		ADDR_MODE_ABS,
+		ADDR_MODE_IND_Y,
+		ADDR_MODE_IND_X,
+		ADDR_MODE_ABS_Y,
+		ADDR_MODE_ABS_X,
+	},
+	{
+		ADDR_MODE_IMM,
+		ADDR_MODE_ZERO,
+		ADDR_MODE_ACC,
+		ADDR_MODE_ABS,
+		ADDR_MODE_INVALID,
+		ADDR_MODE_ZERO_X,
+		ADDR_MODE_INVALID,
+		ADDR_MODE_ABS_X,
+	}
 };
 
 enum {
@@ -43,6 +102,9 @@ enum {
 	PS_OVERFLOW		= 0040,
 	PS_NEGATIVE		= 0100,
 };
+
+#define PS_NEGATIVE_MASK	(1U << 7)
+#define PS_OVERFLOW_MASK	(1U << 6)
 
 enum machine_state {
 	MACHINE_OK,
@@ -63,6 +125,8 @@ enum machine_register {
 
 struct machine {
 	enum machine_state state;
+
+	enum addressing_mode addr_mode;
 	
 	size_t rom_size;
 	const uint8_t *rom;
@@ -190,6 +254,7 @@ int main(int argc, char **argv)
 static void machine_init(struct machine *m, const uint8_t *rom, size_t size)
 {
 	m->state = MACHINE_OK;
+	m->addr_mode = ADDR_MODE_INVALID;
 	m->rom = rom;
 	m->rom_size = size;
 	m->reg[REG_SP] = STACK_PAGE_START;
@@ -231,13 +296,15 @@ static void set_processor_status(struct machine *m, uint8_t flags, uint8_t v)
 	 */
 	if ((flags & PS_ZERO) && (v == 0))
 		m->reg[REG_PS] |= PS_ZERO;
-	if ((flags & PS_NEGATIVE) && ((int8_t)v < 0))
+	if ((flags & PS_NEGATIVE) && (v & PS_NEGATIVE_MASK))
 		m->reg[REG_PS] |= PS_NEGATIVE;
+	if ((flags & PS_OVERFLOW) && (v & PS_OVERFLOW_MASK))
+		m->reg[REG_PS] |= PS_OVERFLOW;
 }
 
-static uint8_t *resolve_address(struct machine *m, enum addr_mode mode)
+static uint8_t *resolve_address(struct machine *m)
 {
-	switch (mode) {
+	switch (m->addr_mode) {
 	case ADDR_MODE_ZERO: {
 		uint8_t off = step_u8(m);
 		return &m->zero_page[off];
@@ -286,30 +353,28 @@ static uint8_t *resolve_address(struct machine *m, enum addr_mode mode)
 	}
 }
 
-static inline uint8_t load_byte(struct machine *m, enum addr_mode mode)
+static inline uint8_t load_byte(struct machine *m)
 {
-	if (mode == ADDR_MODE_IMM)
+	if (m->addr_mode == ADDR_MODE_IMM)
 		return step_u8(m);
 	else
-		return *resolve_address(m, mode);
+		return *resolve_address(m);
 }
 
-static inline void store_byte(struct machine *m, enum addr_mode mode, uint8_t v)
+static inline void store_byte(struct machine *m, uint8_t v)
 {
-	*resolve_address(m, mode) = v;
+	*resolve_address(m) = v;
 }
 
-static inline void load_register(struct machine *m, enum machine_register reg,
-					 enum addr_mode mode)
+static inline void load_register(struct machine *m, enum machine_register reg)
 {
-	m->reg[reg] = load_byte(m, mode);
+	m->reg[reg] = load_byte(m);
 	set_processor_status(m, PS_ZERO | PS_NEGATIVE, m->reg[reg]);
 }
 
-static inline void store_register(struct machine *m, enum machine_register reg,
-				  enum addr_mode mode)
+static inline void store_register(struct machine *m, enum machine_register reg)
 {
-	store_byte(m, mode, m->reg[reg]);
+	store_byte(m, m->reg[reg]);
 }
 
 static inline void transfer_registers(struct machine *m,
@@ -339,65 +404,93 @@ static inline void stack_pull_register(struct machine *m,
 		m->state = MACHINE_STACK_UNDERFLOW;
 }
 
+static inline void logical_and(struct machine *m)
+{
+	uint8_t v = m->reg[REG_ACC] & load_byte(m);
+	set_processor_status(m, PS_ZERO | PS_NEGATIVE, v);
+}
+
+static inline void logical_xor(struct machine *m)
+{
+	uint8_t v = m->reg[REG_ACC] ^ load_byte(m);
+	set_processor_status(m, PS_ZERO | PS_NEGATIVE, v);
+}
+
+static inline void logical_or(struct machine *m)
+{
+	uint8_t v = m->reg[REG_ACC] | load_byte(m);
+	set_processor_status(m, PS_ZERO | PS_NEGATIVE, v);
+}
+
+static inline void bit_test(struct machine *m)
+{
+	uint8_t v = m->reg[REG_ACC] & load_byte(m);
+	set_processor_status(m, PS_ZERO | PS_NEGATIVE | PS_OVERFLOW, v);
+}
+
 static void machine_execute_instruction(struct machine *m)
 {
 	uint8_t op = step_u8(m);
 	
-	switch (op) {
-	case 0xA9: load_register(m, REG_ACC, ADDR_MODE_IMM); return;
-	case 0xA5: load_register(m, REG_ACC, ADDR_MODE_ZERO); return;
-	case 0xB5: load_register(m, REG_ACC, ADDR_MODE_ZERO_X); return;
-	case 0xAD: load_register(m, REG_ACC, ADDR_MODE_ABS); return;
-	case 0xBD: load_register(m, REG_ACC, ADDR_MODE_ABS_X); return;
-	case 0xB9: load_register(m, REG_ACC, ADDR_MODE_ABS_Y); return;
-	case 0xA1: load_register(m, REG_ACC, ADDR_MODE_IND_X); return;
-	case 0xB1: load_register(m, REG_ACC, ADDR_MODE_IND_Y); return;
+	uint8_t op_hi = OPCODE_AAA(op);
+	uint8_t op_addr_mode = OPCODE_BBB(op);
+	uint8_t op_lo = OPCODE_CC(op);
+	
+	m->addr_mode = addressing_mode_table[op_lo][op_addr_mode];
+	enum instruction ins = instruction_table[op_lo][op_hi];
+	
+	if (ins == INS_INVALID || m->addr_mode == ADDR_MODE_INVALID )
+		goto invalid_opcode;
 
-	case 0xA2: load_register(m, REG_X, ADDR_MODE_IMM); return;
-	case 0xA6: load_register(m, REG_X, ADDR_MODE_ZERO); return;
-	case 0xB6: load_register(m, REG_X, ADDR_MODE_ZERO_Y); return;
-	case 0xAE: load_register(m, REG_X, ADDR_MODE_ABS); return;
-	case 0xBE: load_register(m, REG_X, ADDR_MODE_ABS_Y); return;
-
-	case 0xA0: load_register(m, REG_Y, ADDR_MODE_IMM); return;
-	case 0xA4: load_register(m, REG_Y, ADDR_MODE_ZERO); return;
-	case 0xB4: load_register(m, REG_Y, ADDR_MODE_ZERO_X); return;
-	case 0xAC: load_register(m, REG_Y, ADDR_MODE_ABS); return;
-	case 0xBC: load_register(m, REG_Y, ADDR_MODE_ABS_X); return;
+	switch (ins) {
+	case INS_LDA: load_register(m, REG_ACC); break;
+	case INS_LDX: {
+		if (m->addr_mode == ADDR_MODE_ZERO_X)
+			m->addr_mode = ADDR_MODE_ZERO_Y;
+		else if (m->addr_mode == ADDR_MODE_ABS_X)
+			m->addr_mode = ADDR_MODE_ABS_Y;
 		
-	case 0x85: store_register(m, REG_ACC, ADDR_MODE_ZERO); return;
-	case 0x95: store_register(m, REG_ACC, ADDR_MODE_ZERO_X); return;
-	case 0x8D: store_register(m, REG_ACC, ADDR_MODE_ABS); return;
-	case 0x9D: store_register(m, REG_ACC, ADDR_MODE_ABS_X); return;
-	case 0x99: store_register(m, REG_ACC, ADDR_MODE_ABS_Y); return;
-	case 0x81: store_register(m, REG_ACC, ADDR_MODE_IND_X); return;
-	case 0x91: store_register(m, REG_ACC, ADDR_MODE_IND_Y); return;
+		load_register(m, REG_X); break;
+	} break;
+	case INS_LDY: load_register(m, REG_Y); break;
+	case INS_STA: {
+		if (m->addr_mode == ADDR_MODE_IMM)
+			goto invalid_opcode;
+		
+		store_register(m, REG_ACC);
+	} break;
+	case INS_STX: {
+		if (m->addr_mode == ADDR_MODE_ZERO_X)
+			m->addr_mode = ADDR_MODE_ZERO_Y;
+		
+		store_register(m, REG_X);
+	} break;
+	case INS_STY: store_register(m, REG_Y); break;
 
-	case 0x86: store_register(m, REG_X, ADDR_MODE_ZERO); return;
-	case 0x96: store_register(m, REG_X, ADDR_MODE_ZERO_Y); return;
-	case 0x8E: store_register(m, REG_X, ADDR_MODE_ABS); return;
+	case INS_AND: logical_and(m); break;
+	case INS_EOR: logical_xor(m); break;
+	case INS_ORA: logical_or(m); break;
+	case INS_BIT: bit_test(m); break;
 
-	case 0x84: store_register(m, REG_Y, ADDR_MODE_ZERO); return;
-	case 0x94: store_register(m, REG_Y, ADDR_MODE_ZERO_X); return;
-	case 0x8C: store_register(m, REG_Y, ADDR_MODE_ABS); return;
+		/*
+	case INS_TAX: transfer_registers(m, REG_ACC, REG_X); break;
+	case INS_TAY: transfer_registers(m, REG_ACC, REG_Y); break;
+	case INS_TXA: transfer_registers(m, REG_X, REG_ACC); break;
+	case INS_TYA: transfer_registers(m, REG_Y, REG_ACC); break;
 
-	case 0xAA: transfer_registers(m, REG_ACC, REG_X); return;
-	case 0xA8: transfer_registers(m, REG_ACC, REG_Y); return;
-	case 0x8A: transfer_registers(m, REG_X, REG_ACC); return;
-	case 0x98: transfer_registers(m, REG_Y, REG_ACC); return;
+	case INS_TSX: transfer_registers(m, REG_SP, REG_X); break;
+	case INS_TXS: transfer_registers(m, REG_X, REG_SP); break;
+		*/
 
-	case 0xBA: transfer_registers(m, REG_SP, REG_X); return;
-	case 0x9A: transfer_registers(m, REG_X, REG_SP); return;
-	case 0x48: stack_push_register(m, REG_ACC); break;
-	case 0x08: stack_push_register(m, REG_PS); break;
-	case 0x68: stack_pull_register(m, REG_ACC); break;
-	case 0x28: stack_pull_register(m, REG_PS); break;
-
-	default:
-		m->state = MACHINE_INVALID_OPCODE;
-		fprintf(stderr, "INVALID OPCODE (%hhx)\n", op);
-		break;
+	default: goto invalid_opcode;
 	}
+
+	return;
+
+invalid_opcode:
+	m->state = MACHINE_INVALID_OPCODE;
+	fprintf(stderr, "INVALID OPCODE (%hhx)\n", op);
+	return;
 }
 
 static inline void clock_tick(void)
