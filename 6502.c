@@ -29,12 +29,22 @@
 
 enum instruction {
 	INS_INVALID,
+
 	INS_ORA, INS_AND, INS_EOR, INS_ADC,
 	INS_STA, INS_LDA, INS_CMP, INS_SBC,
 	INS_ASL, INS_ROS, INS_LSR, INS_ROR,
 	INS_STX, INS_LDX, INS_DEC, INS_INC,
 	INS_BIT, INS_JMP, INS_JMA, INS_STY,
 	INS_LDY, INS_CPY, INS_CPX,
+
+	INS_BRK, INS_JSR, INS_RTI, INS_RTS,
+
+	INS_PHP, INS_PLP, INS_PHA, INS_PLA,
+	INS_DEY, INS_TAY, INS_INY, INS_INX,
+	INS_CLC, INS_SEC, INS_CLI, INS_SEI,
+	INS_TYA, INS_CLV, INS_CLD, INS_SED,
+	INS_TXA, INS_TXS, INS_TAX, INS_TSX,
+	INS_DEX, INS_NOP,
 };
 
 enum addressing_mode {
@@ -58,6 +68,16 @@ static enum instruction instruction_table[INSTRUCTION_GROUPS][INSTRUCTION_GROUP_
 	{ INS_BIT, INS_JMP, INS_JMA, INS_STY, INS_LDY, INS_CPY, INS_CPX, INS_INVALID },
 	{ INS_ORA, INS_AND, INS_EOR, INS_ADC, INS_STA, INS_LDA, INS_CMP, INS_SBC },
 	{ INS_ASL, INS_ROS, INS_LSR, INS_ROR, INS_STX, INS_LDX, INS_DEC, INS_INC },
+};
+
+static enum instruction special_instruction_table[256] = {
+	[0x00] = INS_BRK, [0x20] = INS_JSR, [0x40] = INS_RTI, [0x60] = INS_RTS,
+	[0x08] = INS_PHP, [0x28] = INS_PLP,  [0x48] = INS_PHA, [0x68] = INS_PLA,
+	[0x88] = INS_DEY, [0xA8] = INS_TAY, [0xC8] = INS_INY, [0xE8] = INS_INX,
+	[0x18] = INS_CLC, [0x38] = INS_SEC, [0x58] = INS_CLI, [0x78] = INS_SEI,
+	[0x98] = INS_TYA, [0xB8] = INS_CLV, [0xD8] = INS_CLD, [0xF8] = INS_SED,
+	[0x8A] = INS_TXA, [0x9A] = INS_TXS, [0xAA] = INS_TAX, [0xBA] = INS_TSX,
+	[0xCA] = INS_DEX, [0xEA] = INS_NOP,
 };
 
 static enum addressing_mode addressing_mode_table[INSTRUCTION_GROUPS][INSTRUCTION_GROUP_MAX] = {
@@ -428,18 +448,29 @@ static inline void bit_test(struct machine *m)
 	set_processor_status(m, PS_ZERO | PS_NEGATIVE | PS_OVERFLOW, v);
 }
 
-static void machine_execute_instruction(struct machine *m)
+static enum instruction instruction_lookup(struct machine *m, uint8_t op)
 {
-	uint8_t op = step_u8(m);
+	enum instruction ins = special_instruction_table[op];
+	if (ins != INS_INVALID)
+		return ins;
 	
 	uint8_t op_hi = OPCODE_AAA(op);
 	uint8_t op_addr_mode = OPCODE_BBB(op);
 	uint8_t op_lo = OPCODE_CC(op);
 	
 	m->addr_mode = addressing_mode_table[op_lo][op_addr_mode];
-	enum instruction ins = instruction_table[op_lo][op_hi];
+	if (m->addr_mode == ADDR_MODE_INVALID)
+		return INS_INVALID;
 	
-	if (ins == INS_INVALID || m->addr_mode == ADDR_MODE_INVALID )
+	return instruction_table[op_lo][op_hi];
+}
+
+static void machine_execute_instruction(struct machine *m)
+{
+	uint8_t op = step_u8(m);
+	
+	enum instruction ins = instruction_lookup(m, op);
+	if (ins == INS_INVALID)
 		goto invalid_opcode;
 
 	switch (ins) {
@@ -472,7 +503,6 @@ static void machine_execute_instruction(struct machine *m)
 	case INS_ORA: logical_or(m); break;
 	case INS_BIT: bit_test(m); break;
 
-		/*
 	case INS_TAX: transfer_registers(m, REG_ACC, REG_X); break;
 	case INS_TAY: transfer_registers(m, REG_ACC, REG_Y); break;
 	case INS_TXA: transfer_registers(m, REG_X, REG_ACC); break;
@@ -480,7 +510,10 @@ static void machine_execute_instruction(struct machine *m)
 
 	case INS_TSX: transfer_registers(m, REG_SP, REG_X); break;
 	case INS_TXS: transfer_registers(m, REG_X, REG_SP); break;
-		*/
+	case INS_PHA: stack_push_register(m, REG_ACC); break;
+	case INS_PHP: stack_push_register(m, REG_PS); break;
+	case INS_PLA: stack_pull_register(m, REG_ACC); break;
+	case INS_PLP: stack_pull_register(m, REG_PS); break;
 
 	default: goto invalid_opcode;
 	}
