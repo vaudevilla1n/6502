@@ -309,19 +309,6 @@ static uint16_t step_u16(struct machine *m) {
 	}
 }
 
-static void set_processor_status(struct machine *m, uint8_t flags, uint8_t v)
-{
-	/*
-	  remember to add the rest when needed!!!
-	 */
-	if ((flags & PS_ZERO) && (v == 0))
-		m->reg[REG_PS] |= PS_ZERO;
-	if ((flags & PS_NEGATIVE) && (v & PS_NEGATIVE_MASK))
-		m->reg[REG_PS] |= PS_NEGATIVE;
-	if ((flags & PS_OVERFLOW) && (v & PS_OVERFLOW_MASK))
-		m->reg[REG_PS] |= PS_OVERFLOW;
-}
-
 static uint8_t *resolve_address(struct machine *m)
 {
 	switch (m->addr_mode) {
@@ -386,10 +373,29 @@ static inline void store_byte(struct machine *m, uint8_t v)
 	*resolve_address(m) = v;
 }
 
+static inline void check_flag(struct machine *m, uint8_t flag, uint8_t bit)
+{
+	if (bit)
+		m->reg[REG_PS] |= flag;
+	else
+		m->reg[REG_PS] &= ~flag;
+}
+
+static inline void check_zero_flag(struct machine *m, uint8_t v)
+{
+	check_flag(m, PS_ZERO, (v == 0));
+}
+
+static inline void check_negative_flag(struct machine *m, uint8_t v)
+{
+	check_flag(m, PS_NEGATIVE, (v >> 7));
+}
+
 static inline void load_register(struct machine *m, enum machine_register reg)
 {
 	m->reg[reg] = load_byte(m);
-	set_processor_status(m, PS_ZERO | PS_NEGATIVE, m->reg[reg]);
+	check_zero_flag(m, m->reg[reg]);
+	check_negative_flag(m, m->reg[reg]);
 }
 
 static inline void store_register(struct machine *m, enum machine_register reg)
@@ -402,8 +408,10 @@ static inline void transfer_registers(struct machine *m,
 				      enum machine_register reg_dst)
 {
 	m->reg[reg_dst] = m->reg[reg_src];
-	if (reg_dst != REG_SP)
-		set_processor_status(m, PS_ZERO | PS_NEGATIVE, m->reg[reg_dst]);
+	if (reg_dst != REG_SP) {
+		check_zero_flag(m, m->reg[reg_dst]);
+		check_negative_flag(m, m->reg[reg_dst]);
+	}
 }
 
 static inline void stack_push_register(struct machine *m,
@@ -426,26 +434,102 @@ static inline void stack_pull_register(struct machine *m,
 
 static inline void logical_and(struct machine *m)
 {
-	uint8_t v = m->reg[REG_ACC] & load_byte(m);
-	set_processor_status(m, PS_ZERO | PS_NEGATIVE, v);
+	m->reg[REG_ACC] &= load_byte(m);
+	check_zero_flag(m, m->reg[REG_ACC]);
+	check_negative_flag(m, m->reg[REG_ACC]);
 }
 
 static inline void logical_xor(struct machine *m)
 {
-	uint8_t v = m->reg[REG_ACC] ^ load_byte(m);
-	set_processor_status(m, PS_ZERO | PS_NEGATIVE, v);
+	m->reg[REG_ACC] ^= load_byte(m);
+	check_zero_flag(m, m->reg[REG_ACC]);
+	check_negative_flag(m, m->reg[REG_ACC]);
 }
 
 static inline void logical_or(struct machine *m)
 {
-	uint8_t v = m->reg[REG_ACC] | load_byte(m);
-	set_processor_status(m, PS_ZERO | PS_NEGATIVE, v);
+	m->reg[REG_ACC] |= load_byte(m);
+	check_zero_flag(m, m->reg[REG_ACC]);
+	check_negative_flag(m, m->reg[REG_ACC]);
 }
 
 static inline void bit_test(struct machine *m)
 {
 	uint8_t v = m->reg[REG_ACC] & load_byte(m);
-	set_processor_status(m, PS_ZERO | PS_NEGATIVE | PS_OVERFLOW, v);
+	check_zero_flag(m, v);
+	check_negative_flag(m, v);
+	check_flag(m, PS_OVERFLOW, ((v >> 6) & 1));
+}
+
+static inline void check_overflow_flag(struct machine *m, uint16_t v)
+{
+	check_flag(m, PS_OVERFLOW, (v > 0xFF));
+}
+
+static void add_with_carry(struct machine *m)
+{
+	uint8_t carry = ((m->reg[REG_PS] & PS_CARRY) > 0);
+	uint16_t res = m->reg[REG_ACC] + load_byte(m) + carry;
+	
+	check_overflow_flag(m, res);
+	check_zero_flag(m, res);
+	check_negative_flag(m, res);
+
+	check_flag(m, PS_CARRY, (m->reg[REG_PS] & PS_OVERFLOW));
+	m->reg[REG_ACC] = res;
+}
+
+static void sub_with_carry(struct machine *m)
+{
+	uint8_t carry = ((m->reg[REG_PS] & PS_CARRY) > 0);
+	uint16_t res = m->reg[REG_ACC] - load_byte(m) - !carry;
+
+	check_overflow_flag(m, res);
+	check_zero_flag(m, res);
+	check_negative_flag(m, res);
+	check_flag(m, PS_CARRY, !(m->reg[REG_PS] & PS_OVERFLOW));
+	
+	m->reg[REG_ACC] = res;
+}
+
+static inline void compare(struct machine *m, enum machine_register reg)
+{
+	uint8_t res = m->reg[reg] - load_byte(m);
+	check_zero_flag(m, res);
+	check_negative_flag(m, res);
+	check_flag(m, PS_CARRY, (res > 0));
+}
+
+static inline void increment_memory(struct machine *m)
+{
+	uint8_t *addr = resolve_address(m);
+	addr[0]++;
+	check_zero_flag(m, addr[0]);
+	check_negative_flag(m, addr[0]);
+}
+
+static inline void increment_register(struct machine *m,
+				      enum machine_register reg)
+{
+	m->reg[reg]++;
+	check_zero_flag(m, m->reg[reg]);
+	check_negative_flag(m, m->reg[reg]);
+}
+
+static inline void decrement_memory(struct machine *m)
+{
+	uint8_t *addr = resolve_address(m);
+	addr[0]--;
+	check_zero_flag(m, addr[0]);
+	check_negative_flag(m, addr[0]);
+}
+
+static inline void decrement_register(struct machine *m,
+				      enum machine_register reg)
+{
+	m->reg[reg]--;
+	check_zero_flag(m, m->reg[reg]);
+	check_negative_flag(m, m->reg[reg]);
 }
 
 static enum instruction instruction_lookup(struct machine *m, uint8_t op)
@@ -474,51 +558,62 @@ static void machine_execute_instruction(struct machine *m)
 		goto invalid_opcode;
 
 	switch (ins) {
-	case INS_LDA: load_register(m, REG_ACC); break;
+	case INS_LDA: load_register(m, REG_ACC); return;
 	case INS_LDX: {
 		if (m->addr_mode == ADDR_MODE_ZERO_X)
 			m->addr_mode = ADDR_MODE_ZERO_Y;
 		else if (m->addr_mode == ADDR_MODE_ABS_X)
 			m->addr_mode = ADDR_MODE_ABS_Y;
 		
-		load_register(m, REG_X); break;
-	} break;
-	case INS_LDY: load_register(m, REG_Y); break;
+		load_register(m, REG_X);
+	} return;
+	case INS_LDY: load_register(m, REG_Y); return;
 	case INS_STA: {
 		if (m->addr_mode == ADDR_MODE_IMM)
 			goto invalid_opcode;
 		
 		store_register(m, REG_ACC);
-	} break;
+	} return;
 	case INS_STX: {
 		if (m->addr_mode == ADDR_MODE_ZERO_X)
 			m->addr_mode = ADDR_MODE_ZERO_Y;
 		
 		store_register(m, REG_X);
-	} break;
-	case INS_STY: store_register(m, REG_Y); break;
+	} return;
+	case INS_STY: store_register(m, REG_Y); return;
 
-	case INS_AND: logical_and(m); break;
-	case INS_EOR: logical_xor(m); break;
-	case INS_ORA: logical_or(m); break;
-	case INS_BIT: bit_test(m); break;
+	case INS_TAX: transfer_registers(m, REG_ACC, REG_X); return;
+	case INS_TAY: transfer_registers(m, REG_ACC, REG_Y); return;
+	case INS_TXA: transfer_registers(m, REG_X, REG_ACC); return;
+	case INS_TYA: transfer_registers(m, REG_Y, REG_ACC); return;
 
-	case INS_TAX: transfer_registers(m, REG_ACC, REG_X); break;
-	case INS_TAY: transfer_registers(m, REG_ACC, REG_Y); break;
-	case INS_TXA: transfer_registers(m, REG_X, REG_ACC); break;
-	case INS_TYA: transfer_registers(m, REG_Y, REG_ACC); break;
+	case INS_TSX: transfer_registers(m, REG_SP, REG_X); return;
+	case INS_TXS: transfer_registers(m, REG_X, REG_SP); return;
+	case INS_PHA: stack_push_register(m, REG_ACC); return;
+	case INS_PHP: stack_push_register(m, REG_PS); return;
+	case INS_PLA: stack_pull_register(m, REG_ACC); return;
+	case INS_PLP: stack_pull_register(m, REG_PS); return;
+		
+	case INS_AND: logical_and(m); return;
+	case INS_EOR: logical_xor(m); return;
+	case INS_ORA: logical_or(m); return;
+	case INS_BIT: bit_test(m); return;
 
-	case INS_TSX: transfer_registers(m, REG_SP, REG_X); break;
-	case INS_TXS: transfer_registers(m, REG_X, REG_SP); break;
-	case INS_PHA: stack_push_register(m, REG_ACC); break;
-	case INS_PHP: stack_push_register(m, REG_PS); break;
-	case INS_PLA: stack_pull_register(m, REG_ACC); break;
-	case INS_PLP: stack_pull_register(m, REG_PS); break;
+	case INS_ADC: add_with_carry(m); return;
+	case INS_SBC: sub_with_carry(m); return;
+	case INS_CMP: compare(m, REG_ACC); return;
+	case INS_CPX: compare(m, REG_X); return;
+	case INS_CPY: compare(m, REG_Y); return;
 
-	default: goto invalid_opcode;
+	case INS_INC: increment_memory(m); return;
+	case INS_INX: increment_register(m, REG_X); return;
+	case INS_INY: increment_register(m, REG_Y); return;
+ 	case INS_DEC: decrement_memory(m); return;
+	case INS_DEX: decrement_register(m, REG_X); return;
+	case INS_DEY: decrement_register(m, REG_Y); return;
+
+	default: break;
 	}
-
-	return;
 
 invalid_opcode:
 	m->state = MACHINE_INVALID_OPCODE;
