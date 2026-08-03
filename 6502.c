@@ -6,6 +6,7 @@
 	  https://6502.org
 	  https://llx.com/Neil/a2/opcodes.html (!!!)
  */
+#include "opcodes.h"
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -27,109 +28,6 @@
 #define INT_HANDLER		0xFFFA
 #define POW_HANDLER		0XFFFC
 #define IRQ_HANDLER		0xFFFE
-
-#define OPCODE_AAA(o)	((o) >> 5)
-#define OPCODE_BBB(o)	(((o) >> 2) & 7)
-#define OPCODE_CC(o)	((o) & 3)
-
-enum instruction {
-	INS_INVALID,
-
-	// JMA -> JMP ABSOLUTE
-	INS_ORA, INS_AND, INS_EOR, INS_ADC,
-	INS_STA, INS_LDA, INS_CMP, INS_SBC,
-	INS_ASL, INS_ROL, INS_LSR, INS_ROR,
-	INS_STX, INS_LDX, INS_DEC, INS_INC,
-	INS_BIT, INS_JMP, INS_JMA, INS_STY,
-	INS_LDY, INS_CPY, INS_CPX,
-
-	INS_BPL, INS_BMI, INS_BVC, INS_BVS,
-	INS_BCC, INS_BCS, INS_BNE, INS_BEQ,
-	INS_BRK, INS_JSR, INS_RTI, INS_RTS,
-
-	INS_PHP, INS_PLP, INS_PHA, INS_PLA,
-	INS_DEY, INS_TAY, INS_INY, INS_INX,
-	INS_CLC, INS_SEC, INS_CLI, INS_SEI,
-	INS_TYA, INS_CLV, INS_CLD, INS_SED,
-	INS_TXA, INS_TXS, INS_TAX, INS_TSX,
-	INS_DEX, INS_NOP,
-};
-
-enum addressing_mode {
-	ADDR_MODE_INVALID,
-	ADDR_MODE_NONE,
-	ADDR_MODE_IMM,
-	ADDR_MODE_ACC,
-	ADDR_MODE_REL,
-	ADDR_MODE_ZERO,
-	ADDR_MODE_ZERO_X,
-	ADDR_MODE_ZERO_Y,
-	ADDR_MODE_ABS,
-	ADDR_MODE_ABS_X,
-	ADDR_MODE_ABS_Y,
-	ADDR_MODE_IND,
-	ADDR_MODE_IND_X,
-	ADDR_MODE_IND_Y,
-};
-
-struct opcode {
-	enum instruction ins;
-	enum addressing_mode addr_mode;
-};
-
-#define INSTRUCTION_GROUPS	3
-#define INSTRUCTION_GROUP_MAX	8
-
-static enum instruction instruction_table[INSTRUCTION_GROUPS][INSTRUCTION_GROUP_MAX] = {
-	{ INS_BIT, INS_JMP, INS_JMA, INS_STY, INS_LDY, INS_CPY, INS_CPX, INS_INVALID },
-	{ INS_ORA, INS_AND, INS_EOR, INS_ADC, INS_STA, INS_LDA, INS_CMP, INS_SBC },
-	{ INS_ASL, INS_ROL, INS_LSR, INS_ROR, INS_STX, INS_LDX, INS_DEC, INS_INC },
-};
-
-static enum instruction special_instruction_table[256] = {
-	[0x00] = INS_BRK, [0x20] = INS_JSR, [0x40] = INS_RTI, [0x60] = INS_RTS,
-	[0x10] = INS_BPL, [0x30] = INS_BMI, [0x50] = INS_BVC, [0x70] = INS_BVS,
-	[0x90] = INS_BCC, [0xB0] = INS_BCS, [0xD0] = INS_BNE, [0xF0] = INS_BEQ,
-	[0x08] = INS_PHP, [0x28] = INS_PLP,  [0x48] = INS_PHA, [0x68] = INS_PLA,
-	[0x88] = INS_DEY, [0xA8] = INS_TAY, [0xC8] = INS_INY, [0xE8] = INS_INX,
-	[0x18] = INS_CLC, [0x38] = INS_SEC, [0x58] = INS_CLI, [0x78] = INS_SEI,
-	[0x98] = INS_TYA, [0xB8] = INS_CLV, [0xD8] = INS_CLD, [0xF8] = INS_SED,
-	[0x8A] = INS_TXA, [0x9A] = INS_TXS, [0xAA] = INS_TAX, [0xBA] = INS_TSX,
-	[0xCA] = INS_DEX, [0xEA] = INS_NOP,
-};
-
-static enum addressing_mode addressing_mode_table[INSTRUCTION_GROUPS][INSTRUCTION_GROUP_MAX] = {
-	{
-		ADDR_MODE_IMM,
-		ADDR_MODE_ZERO,
-		ADDR_MODE_INVALID,
-		ADDR_MODE_ABS,
-		ADDR_MODE_INVALID,
-		ADDR_MODE_ZERO_X,
-		ADDR_MODE_INVALID,
-		ADDR_MODE_ABS_X,
-	},
-	{
-		ADDR_MODE_ZERO_X,
-		ADDR_MODE_ZERO,
-		ADDR_MODE_IMM,
-		ADDR_MODE_ABS,
-		ADDR_MODE_IND_Y,
-		ADDR_MODE_IND_X,
-		ADDR_MODE_ABS_Y,
-		ADDR_MODE_ABS_X,
-	},
-	{
-		ADDR_MODE_IMM,
-		ADDR_MODE_ZERO,
-		ADDR_MODE_ACC,
-		ADDR_MODE_ABS,
-		ADDR_MODE_INVALID,
-		ADDR_MODE_ZERO_X,
-		ADDR_MODE_INVALID,
-		ADDR_MODE_ABS_X,
-	}
-};
 
 enum {
 	PS_CARRY,
@@ -358,22 +256,47 @@ static inline void transfer_x_to_stack_pointer(struct machine *m)
 	m->reg[REG_S] = m->reg[REG_X];
 }
 
+static inline void stack_push_u8(struct machine *m, uint8_t dat)
+{
+	if (m->reg[REG_S] > 0)
+		m->stack[m->reg[REG_S]--] = dat;
+	else
+		m->state = MACHINE_STACK_OVERFLOW;
+}
+
+static inline void stack_push_u16(struct machine *m, uint16_t dat)
+{
+	stack_push_u8(m, dat & 0xFF);
+	stack_push_u8(m, (dat >> 8) & 0xFF);
+}
+
+static inline uint8_t stack_pop_u8(struct machine *m)
+{
+	if (m->reg[REG_S] + 1 < STACK_PAGE_LEN) {
+		return m->stack[++m->reg[REG_S]];
+	} else {
+		m->state = MACHINE_STACK_OVERFLOW;
+		return 0x00;
+	}
+}
+
+static inline uint16_t stack_pop_u16(struct machine *m)
+{
+	uint8_t lo = stack_pop_u8(m);
+	uint8_t hi = stack_pop_u8(m);
+	return (hi << 8) | lo;
+}
+
 static inline void stack_push_register(struct machine *m,
 				       enum machine_register reg)
 {
-	if (m->reg[REG_S] != 0)
-		m->stack[(m->reg[REG_S])--] = m->reg[reg];
-	else
-		m->state = MACHINE_STACK_OVERFLOW;
+	stack_push_u8(m, m->reg[reg]);
 }
 
 static inline void stack_pull_register(struct machine *m,
 				       enum machine_register reg)
 {
-	if (m->reg[REG_S] + 1 <= STACK_PAGE_LEN)
-		m->reg[reg] = m->stack[++(m->reg[REG_S])];
-	else
-		m->state = MACHINE_STACK_UNDERFLOW;
+	m->reg[reg] = stack_pop_u8(m);
 }
 
 static inline void logical_and(struct machine *m, uint8_t b)
@@ -511,37 +434,6 @@ static inline void jump(struct machine *m, uint8_t *mem)
 	m->pc = mem - m->memory;
 }
 
-static inline void stack_push_u8(struct machine *m, uint8_t dat)
-{
-	if (m->reg[REG_S] > 0)
-		m->stack[m->reg[REG_S]--] = dat;
-	else
-		m->state = MACHINE_STACK_OVERFLOW;
-}
-
-static inline void stack_push_u16(struct machine *m, uint16_t dat)
-{
-	stack_push_u8(m, dat & 0xFF);
-	stack_push_u8(m, (dat >> 8) & 0xFF);
-}
-
-static inline uint8_t stack_pop_u8(struct machine *m)
-{
-	if (m->reg[REG_S] + 1 < STACK_PAGE_LEN) {
-		return m->stack[++m->reg[REG_S]];
-	} else {
-		m->state = MACHINE_STACK_OVERFLOW;
-		return 0x00;
-	}
-}
-
-static inline uint16_t stack_pop_u16(struct machine *m)
-{
-	uint8_t lo = stack_pop_u8(m);
-	uint8_t hi = stack_pop_u8(m);
-	return (hi << 8) | lo;
-}
-
 static void subroutine_jump(struct machine *m, const uint8_t *mem)
 {
 	stack_push_u16(m, m->pc);
@@ -580,7 +472,8 @@ static void force_interrupt(struct machine *m)
 	stack_push_u16(m, m->pc);
 	stack_push_u8(m, m->reg[REG_PS]);
 	set_flag(m, PS_BREAK);
-	m->pc = IRQ_HANDLER;
+	// interrupt is handled externally, so just clear pc for now
+	m->pc = 0;
 }
 
 static void no_op(void)
