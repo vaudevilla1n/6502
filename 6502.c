@@ -39,6 +39,8 @@ enum instruction {
 	INS_BIT, INS_JMP, INS_JMA, INS_STY,
 	INS_LDY, INS_CPY, INS_CPX,
 
+	INS_BPL, INS_BMI, INS_BVC, INS_BVS,
+	INS_BCC, INS_BCS, INS_BNE, INS_BEQ,
 	INS_BRK, INS_JSR, INS_RTI, INS_RTS,
 
 	INS_PHP, INS_PLP, INS_PHA, INS_PLA,
@@ -54,6 +56,7 @@ enum addressing_mode {
 	ADDR_MODE_NONE,
 	ADDR_MODE_IMM,
 	ADDR_MODE_ACC,
+	ADDR_MODE_REL,
 	ADDR_MODE_ZERO,
 	ADDR_MODE_ZERO_X,
 	ADDR_MODE_ZERO_Y,
@@ -81,6 +84,8 @@ static enum instruction instruction_table[INSTRUCTION_GROUPS][INSTRUCTION_GROUP_
 
 static enum instruction special_instruction_table[256] = {
 	[0x00] = INS_BRK, [0x20] = INS_JSR, [0x40] = INS_RTI, [0x60] = INS_RTS,
+	[0x10] = INS_BPL, [0x30] = INS_BMI, [0x50] = INS_BVC, [0x70] = INS_BVS,
+	[0x90] = INS_BCC, [0xB0] = INS_BCS, [0xD0] = INS_BNE, [0xF0] = INS_BEQ,
 	[0x08] = INS_PHP, [0x28] = INS_PLP,  [0x48] = INS_PHA, [0x68] = INS_PLA,
 	[0x88] = INS_DEY, [0xA8] = INS_TAY, [0xC8] = INS_INY, [0xE8] = INS_INX,
 	[0x18] = INS_CLC, [0x38] = INS_SEC, [0x58] = INS_CLI, [0x78] = INS_SEI,
@@ -531,6 +536,28 @@ static void subroutine_return(struct machine *m)
 	m->pc = (m->stack[sp] << 8) | m->stack[sp - 1];
 }
 
+static inline void branch_if_clear(struct machine *m, uint8_t flag, int8_t off)
+{
+	if (!get_flag_bit(m, flag))
+		m->pc = (int16_t)m->pc - off;
+}
+
+static inline void branch_if_set(struct machine *m, uint8_t flag, int8_t off)
+{
+	if (get_flag_bit(m, flag))
+		m->pc = (int16_t)m->pc - off;
+}
+
+static inline void clear_flag(struct machine *m, uint8_t flag)
+{
+	m->reg[REG_PS] &= ~(1U << flag);
+}
+
+static inline void set_flag(struct machine *m, uint8_t flag)
+{
+	m->reg[REG_PS] |= (1U << flag);
+}
+
 static uint8_t read_u8_from_rom(struct machine *m)
 {
 	if (m->pc + 1U <= m->rom_size) {
@@ -626,6 +653,7 @@ static uint8_t *fetch_memory_address(struct machine *m,
 	switch (mode) {
 	case ADDR_MODE_IMM:	return (uint8_t *)&m->rom[m->pc++];
 	case ADDR_MODE_ACC:	return &m->reg[REG_A];
+	case ADDR_MODE_REL:	return (uint8_t *)&m->rom[m->pc++];
 		
 	case ADDR_MODE_ZERO:	return fetch_zero_page_address(m, 0);
 	case ADDR_MODE_ZERO_X:	return fetch_zero_page_address(m, m->reg[REG_X]);
@@ -750,9 +778,25 @@ static void machine_execute_instruction(struct machine *m)
 
 	case INS_JMP:
 	case INS_JMA: jump(m, mem); return;
-
 	case INS_JSR: subroutine_jump(m, mem); return;
 	case INS_RTS: subroutine_return(m); return;
+
+	case INS_BCC: branch_if_clear(m, PS_CARRY, (int8_t)mem[0]); return;
+	case INS_BCS: branch_if_set(m, PS_CARRY, (int8_t)mem[0]); return;
+	case INS_BEQ: branch_if_set(m, PS_ZERO, (int8_t)mem[0]); return;
+	case INS_BNE: branch_if_clear(m, PS_ZERO, (int8_t)mem[0]); return;
+	case INS_BMI: branch_if_set(m, PS_NEGATIVE, (int8_t)mem[0]); return;
+	case INS_BPL: branch_if_clear(m, PS_NEGATIVE, (int8_t)mem[0]); return;
+	case INS_BVC: branch_if_clear(m, PS_OVERFLOW, (int8_t)mem[0]); return;
+	case INS_BVS: branch_if_set(m, PS_OVERFLOW, (int8_t)mem[0]); return;
+
+	case INS_CLC: clear_flag(m, PS_CARRY); return;
+	case INS_CLD: clear_flag(m, PS_DECIMAL_MODE); return;
+	case INS_CLI: clear_flag(m, PS_INTERRUPT_DISABLE); return;
+	case INS_CLV: clear_flag(m, PS_OVERFLOW); return;
+	case INS_SEC: set_flag(m, PS_CARRY); return;
+	case INS_SED: set_flag(m, PS_DECIMAL_MODE); return;
+	case INS_SEI: set_flag(m, PS_INTERRUPT_DISABLE); return;
 
 	default: break;
 	}
