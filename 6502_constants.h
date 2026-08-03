@@ -1,5 +1,24 @@
 #pragma once
 
+enum {
+	PS_CARRY,
+	PS_ZERO,
+	PS_INTERRUPT_DISABLE,
+	PS_DECIMAL_MODE,
+	PS_BREAK,
+	PS_OVERFLOW,
+	PS_NEGATIVE,
+};
+
+enum machine_register {
+	REG_A,
+	REG_PS,
+	REG_S,
+	REG_X,
+	REG_Y,
+	TOTAL_CPU_REGS,
+};
+
 enum instruction {
 	INS_INVALID,
 
@@ -102,3 +121,15 @@ static enum addressing_mode addressing_mode_table[INSTRUCTION_GROUPS][INSTRUCTIO
 #define OPCODE_AAA(o)	((o) >> 5)
 #define OPCODE_BBB(o)	(((o) >> 2) & 7)
 #define OPCODE_CC(o)	((o) & 3)
+
+#define KB(n)	((n) * (2 << 10))
+
+#define ZERO_PAGE_LEN		256
+#define STACK_PAGE_LEN		256
+#define MEMORY_AVAILABLE	KB(64)
+
+#define INT_HANDLER		0xFFFA
+#define POW_HANDLER		0XFFFC
+#define IRQ_HANDLER		0xFFFE
+
+#define CPU_CLOCK_RATE_US	3

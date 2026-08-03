@@ -6,7 +6,7 @@
 	  https://6502.org
 	  https://llx.com/Neil/a2/opcodes.html (!!!)
  */
-#include "opcodes.h"
+#include "6502_constants.h"
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -16,44 +16,12 @@
 #define unreachable(f) \
 	do { fprintf(stderr, "unreachable: %s\n", f); abort(); } while (0)
 
-#define KB(n)	((n) * (2 << 10))
-
-#define CPU_CLOCK_RATE_US	3
-
-#define ZERO_PAGE_LEN		256
-#define STACK_PAGE_LEN		256
-#define STACK_PAGE_START	0xFF
-#define MAX_AVAILABLE_MEMORY	KB(64)
-
-#define INT_HANDLER		0xFFFA
-#define POW_HANDLER		0XFFFC
-#define IRQ_HANDLER		0xFFFE
-
-enum {
-	PS_CARRY,
-	PS_ZERO,
-	PS_INTERRUPT_DISABLE,
-	PS_DECIMAL_MODE,
-	PS_BREAK,
-	PS_OVERFLOW,
-	PS_NEGATIVE,
-};
-
 enum machine_state {
 	MACHINE_OK,
 	MACHINE_INVALID_OPCODE,
 	MACHINE_OUT_OF_BOUNDS,
 	MACHINE_STACK_OVERFLOW,
 	MACHINE_STACK_UNDERFLOW,
-};
-
-enum machine_register {
-	REG_A,
-	REG_PS,
-	REG_S,
-	REG_X,
-	REG_Y,
-	TOTAL_CPU_REGS,
 };
 
 struct machine {
@@ -69,7 +37,7 @@ struct machine {
 	
 	uint8_t zero_page[ZERO_PAGE_LEN];
 	uint8_t stack[STACK_PAGE_LEN];
-	uint8_t memory[MAX_AVAILABLE_MEMORY];
+	uint8_t memory[MEMORY_AVAILABLE];
 };
 
 static void machine_init(struct machine *m, const uint8_t *rom, size_t size);
@@ -169,7 +137,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	if (size > MAX_AVAILABLE_MEMORY) {
+	if (size > MEMORY_AVAILABLE) {
 		fprintf(stderr, "%s is too large\n", path);
 		return 1;
 	}
@@ -539,7 +507,7 @@ static inline uint8_t *fetch_zero_page_address(struct machine *m, uint8_t off)
 
 static inline bool valid_address(uint16_t addr, uint16_t off)
 {
-	return (addr + off < MAX_AVAILABLE_MEMORY);
+	return (addr + off < MEMORY_AVAILABLE);
 }
 
 static inline uint8_t *fetch_absolute_address(struct machine *m, uint8_t off)
@@ -552,7 +520,7 @@ static inline uint8_t *fetch_absolute_address(struct machine *m, uint8_t off)
 static inline uint8_t *fetch_indirect_address(struct machine *m)
 {
 	uint16_t ind_addr = read_u16_from_rom(m);
-	if (!machine_ok(m) || ind_addr + 2 > MAX_AVAILABLE_MEMORY)
+	if (!machine_ok(m) || ind_addr + 2 > MEMORY_AVAILABLE)
 		return 0;
 	uint16_t addr = read_u16_from_memory(m, ind_addr);
 	return &m->memory[addr];
