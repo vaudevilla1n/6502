@@ -24,6 +24,10 @@
 #define STACK_PAGE_START	0xFF
 #define MAX_AVAILABLE_MEMORY	KB(64)
 
+#define INT_HANDLER		0xFFFA
+#define POW_HANDLER		0XFFFC
+#define IRQ_HANDLER		0xFFFE
+
 #define OPCODE_AAA(o)	((o) >> 5)
 #define OPCODE_BBB(o)	(((o) >> 2) & 7)
 #define OPCODE_CC(o)	((o) & 3)
@@ -507,33 +511,46 @@ static inline void jump(struct machine *m, uint8_t *mem)
 	m->pc = mem - m->memory;
 }
 
+static inline void stack_push_u8(struct machine *m, uint8_t dat)
+{
+	if (m->reg[REG_S] > 0)
+		m->stack[m->reg[REG_S]--] = dat;
+	else
+		m->state = MACHINE_STACK_OVERFLOW;
+}
+
+static inline void stack_push_u16(struct machine *m, uint16_t dat)
+{
+	stack_push_u8(m, dat & 0xFF);
+	stack_push_u8(m, (dat >> 8) & 0xFF);
+}
+
+static inline uint8_t stack_pop_u8(struct machine *m)
+{
+	if (m->reg[REG_S] + 1 < STACK_PAGE_LEN) {
+		return m->stack[++m->reg[REG_S]];
+	} else {
+		m->state = MACHINE_STACK_OVERFLOW;
+		return 0x00;
+	}
+}
+
+static inline uint16_t stack_pop_u16(struct machine *m)
+{
+	uint8_t lo = stack_pop_u8(m);
+	uint8_t hi = stack_pop_u8(m);
+	return (hi << 8) | lo;
+}
+
 static void subroutine_jump(struct machine *m, const uint8_t *mem)
 {
-	if (m->reg[REG_S] < 2) {
-		m->state = MACHINE_STACK_OVERFLOW;
-		return;
-	}
-
-	uint8_t sp = m->reg[REG_S];
-	m->reg[REG_S] -= 2;
-
-	m->stack[sp] = (m->pc >> 8) & 0xFF;
-	m->stack[sp - 1] = m->pc & 0xFF;
-
+	stack_push_u16(m, m->pc);
 	m->pc = mem - m->memory;
 }
 
 static void subroutine_return(struct machine *m)
 {
-	if (m->reg[REG_S] + 2 > STACK_PAGE_LEN) {
-		m->state = MACHINE_STACK_UNDERFLOW;
-		return;
-	}
-
-	m->reg[REG_S] += 2;
-	uint8_t sp = m->reg[REG_S];
-
-	m->pc = (m->stack[sp] << 8) | m->stack[sp - 1];
+	m->pc = stack_pop_u16(m);
 }
 
 static inline void branch_if_clear(struct machine *m, uint8_t flag, int8_t off)
@@ -556,6 +573,26 @@ static inline void clear_flag(struct machine *m, uint8_t flag)
 static inline void set_flag(struct machine *m, uint8_t flag)
 {
 	m->reg[REG_PS] |= (1U << flag);
+}
+
+static void force_interrupt(struct machine *m)
+{
+	stack_push_u16(m, m->pc);
+	stack_push_u8(m, m->reg[REG_PS]);
+	set_flag(m, PS_BREAK);
+	m->pc = IRQ_HANDLER;
+}
+
+static void no_op(void)
+{
+	// we get high we get fat
+	return;
+}
+
+static inline void return_from_interrupt(struct machine *m)
+{
+	m->reg[REG_PS] = stack_pop_u8(m);
+	m->pc = stack_pop_u16(m);
 }
 
 static uint8_t read_u8_from_rom(struct machine *m)
@@ -797,6 +834,11 @@ static void machine_execute_instruction(struct machine *m)
 	case INS_SEC: set_flag(m, PS_CARRY); return;
 	case INS_SED: set_flag(m, PS_DECIMAL_MODE); return;
 	case INS_SEI: set_flag(m, PS_INTERRUPT_DISABLE); return;
+
+	// don't know what to do with these interrupts yet
+	case INS_BRK: force_interrupt(m); return;
+	case INS_NOP: no_op(); return;
+	case INS_RTI: return_from_interrupt(m); return;
 
 	default: break;
 	}
