@@ -497,10 +497,38 @@ static void rotate_right(struct machine *m, uint8_t *mem)
 	check_flag(m, PS_CARRY, lsb);
 }
 
-static void jump(struct machine *m, uint8_t *mem)
+static inline void jump(struct machine *m, uint8_t *mem)
 {
-	(void)m;
-	(void)mem;
+	m->pc = mem - m->memory;
+}
+
+static void subroutine_jump(struct machine *m, const uint8_t *mem)
+{
+	if (m->reg[REG_S] < 2) {
+		m->state = MACHINE_STACK_OVERFLOW;
+		return;
+	}
+
+	uint8_t sp = m->reg[REG_S];
+	m->reg[REG_S] -= 2;
+
+	m->stack[sp] = (m->pc >> 8) & 0xFF;
+	m->stack[sp - 1] = m->pc & 0xFF;
+
+	m->pc = mem - m->memory;
+}
+
+static void subroutine_return(struct machine *m)
+{
+	if (m->reg[REG_S] + 2 > STACK_PAGE_LEN) {
+		m->state = MACHINE_STACK_UNDERFLOW;
+		return;
+	}
+
+	m->reg[REG_S] += 2;
+	uint8_t sp = m->reg[REG_S];
+
+	m->pc = (m->stack[sp] << 8) | m->stack[sp - 1];
 }
 
 static uint8_t read_u8_from_rom(struct machine *m)
@@ -564,13 +592,31 @@ static inline uint8_t *fetch_absolute_address(struct machine *m, uint8_t off)
 		? &m->memory[addr + off] : 0;
 }
 
-static inline uint8_t *fetch_indirect_address(struct machine *m, uint8_t zp_off,
-					      uint8_t off)
+static inline uint8_t *fetch_indirect_address(struct machine *m)
+{
+	uint16_t ind_addr = read_u16_from_rom(m);
+	if (!machine_ok(m) || ind_addr + 2 > MAX_AVAILABLE_MEMORY)
+		return 0;
+	uint16_t addr = read_u16_from_memory(m, ind_addr);
+	return &m->memory[addr];
+}
+
+static inline uint8_t *fetch_indexed_indirect_address(struct machine *m)
 {
 	uint16_t zp_addr = read_u8_from_rom(m);
 	if (!machine_ok(m))
 		return 0;
-	uint16_t addr = read_u16_from_zero_page(m, zp_addr + zp_off);
+	uint16_t addr = read_u16_from_zero_page(m, zp_addr + m->reg[REG_X]);
+	return &m->memory[addr];
+}
+
+static inline uint8_t *fetch_indirect_indexed_address(struct machine *m)
+{
+	uint16_t zp_addr = read_u8_from_rom(m);
+	if (!machine_ok(m))
+		return 0;
+	uint16_t off = m->reg[REG_Y];
+	uint16_t addr = read_u16_from_zero_page(m, zp_addr);
 	return (valid_address(addr, off)) ? &m->memory[addr + off] : 0;
 }
 
@@ -589,9 +635,9 @@ static uint8_t *fetch_memory_address(struct machine *m,
 	case ADDR_MODE_ABS_X:	return fetch_absolute_address(m, m->reg[REG_X]);
 	case ADDR_MODE_ABS_Y:	return fetch_absolute_address(m, m->reg[REG_Y]);
 
-	case ADDR_MODE_IND:	return fetch_indirect_address(m, 0, 0);
-	case ADDR_MODE_IND_X:	return fetch_indirect_address(m, m->reg[REG_X], 0);
-	case ADDR_MODE_IND_Y:	return fetch_indirect_address(m, 0, m->reg[REG_Y]);
+	case ADDR_MODE_IND:	return fetch_indirect_address(m);
+	case ADDR_MODE_IND_X:	return fetch_indexed_indirect_address(m);
+	case ADDR_MODE_IND_Y:	return fetch_indirect_indexed_address(m);
 
 	default: unreachable("fetch_memory_address");
 	}
@@ -704,6 +750,9 @@ static void machine_execute_instruction(struct machine *m)
 
 	case INS_JMP:
 	case INS_JMA: jump(m, mem); return;
+
+	case INS_JSR: subroutine_jump(m, mem); return;
+	case INS_RTS: subroutine_return(m); return;
 
 	default: break;
 	}
