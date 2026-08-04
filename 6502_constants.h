@@ -126,6 +126,7 @@ static enum addressing_mode addressing_mode_table[INSTRUCTION_GROUPS][INSTRUCTIO
 
 #define ZERO_PAGE_LEN		256
 #define STACK_PAGE_LEN		256
+#define STACK_PAGE_START	0xFF
 #define MEMORY_AVAILABLE	KB(64)
 
 #define INT_HANDLER		0xFFFA
