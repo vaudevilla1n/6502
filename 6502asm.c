@@ -1,7 +1,13 @@
+/*
+  assembler for 6502 assembly
+
+  https://planetmath.org/goodhashtableprimes -> used for hash map primes
+ */
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <string.h>
 
 enum token_type {
 	T_EOF,
@@ -50,6 +56,31 @@ struct lexer {
 
 static struct lexer lexer_new(const char *src, size_t srclen);
 static void lexer_next(struct lexer *l);
+
+struct instruction_map_pair {
+	size_t keylen;
+	const char *key;
+	enum instruction val;
+};
+
+#define INSTRUCTION_MAP_CAPACITIY	(INSTRUCTION_COUNT * 3/2)
+
+struct instruction_map {
+	size_t len;
+	size_t cap;
+	struct instruction_map_pair index[INSTRUCTION_MAP_CAPACITY];
+};
+
+static struct instruction_map instruction_identifier_map = { 0 };
+
+#define INSTRUCTION_NAME_LEN		3
+#define INSTRUCTION_MAP_HASH_PRIME	50331653
+
+static void instruction_map_insert(struct instruction_map *m, const char *key
+				   enum instruction val);
+static void instruction_map_init(struct instruction_map *m);
+static enum instruction instruction_map_find(struct instruction_map *m,
+					     const char *key);
 
 static char *read_file(const char *path, size_t *datlen)
 {
@@ -112,6 +143,46 @@ int main(int argc, char **argv)
 			lexer_next(&l);
 		}
 	}
+}
+
+static inline uint64_t_t instruction_map_hash(const char *key)
+{
+	uint64_t v = (key[0] << 16) | (key[1] << 8) | (key[2]);
+	return INSTRUCTION_MAP_HASH_PRIME ^ v;
+}
+
+static void instruction_map_insert(struct instruction_map *m, const char *key,
+				   enum instruction val)
+{
+	size_t idx = instruction_map_hash(key) % m->cap;
+	for (size_t i = 0; i < m->cap; i++) {
+		size_t j = (idx + 1) % m->cap;
+		
+		if (!m->index[j].key) {
+			m->index[j].key = key;
+			m->index[j].val = val;
+			return;
+		}
+	}
+
+	fprintf(stderr, "instruction identifier map at max capacity\n");
+	exit(1);
+}
+
+static void instruction_map_init(struct instruction_map *m)
+{
+	m->cap = INSTRUCTION_MAP_CAPACITY;
+	m->len = 0;
+
+	for (size_t i = INSTRUCTION_ENUM_START; i < INSTRUCTION_COUNT; i++) {
+		const char *key = instruction_name_table[i];
+		instruction_map_insert(m, key, i);
+	}
+}
+
+static enum instruction instruction_map_find(struct instruction_map *m,
+					     const char *key)
+{
 }
 
 static struct lexer lexer_new(const char *src, size_t srclen)
@@ -208,6 +279,11 @@ static inline bool register_identifier(char c)
 	}
 }
 
+static enum instruction lookup_instruction_id(const char *id, size_t len)
+{
+	
+}
+
 static void lex_identifier(struct lexer *l)
 {
 	size_t start = lexer_pos(l) - 1;
@@ -226,7 +302,10 @@ static void lex_identifier(struct lexer *l)
 		l->token.type = (register_identifier(reg)) ? T_REGISTER
 			: T_INVALID;
 	} else {
-		l->token.type = T_INVALID;
+		enum instruction ins = lookup_instruction_id(l->src + start,
+							     len);
+		l->token.type = (ins != INS_INVALID) ? T_INSTRUCTION
+			: T_INVALID;
 	}
 }
 

@@ -16,8 +16,11 @@ enum machine_register {
 	REG_S,
 	REG_X,
 	REG_Y,
-	TOTAL_CPU_REGS,
+	REGISTER_END,
 };
+
+// missing program counter
+#define REGISTER_COUNT	(REGISTER_END + 1)
 
 enum instruction {
 	INS_INVALID,
@@ -40,6 +43,33 @@ enum instruction {
 	INS_TYA, INS_CLV, INS_CLD, INS_SED,
 	INS_TXA, INS_TXS, INS_TAX, INS_TSX,
 	INS_DEX, INS_NOP,
+
+	INSTRUCTION_END,
+};
+
+#define INSTRUCTION_ENUM_START	(1)
+#define INSTRUCTION_COUNT	(INSTRUCTION_END - 1)
+
+static const char *instruction_name_table[INSTRUCTION_COUNT] = {
+	"INVALID",
+
+	"ORA", "AND", "EOR", "ADC",
+	"STA", "LDA", "CMP", "SBC",
+	"ASL", "ROL", "LSR", "ROR",
+	"STX", "LDX", "DEC", "INC",
+	"BIT", "JMP", "JMA", "STY",
+	"LDY", "CPY", "CPX",
+
+	"BPL", "BMI", "BVC", "BVS",
+	"BCC", "BCS", "BNE", "BEQ",
+	"BRK", "JSR", "RTI", "RTS",
+
+	"PHP", "PLP", "PHA", "PLA",
+	"DEY", "TAY", "INY", "INX",
+	"CLC", "SEC", "CLI", "SEI",
+	"TYA", "CLV", "CLD", "SED",
+	"TXA", "TXS", "TAX", "TSX",
+	"DEX", "NOP",	
 };
 
 enum addressing_mode {

@@ -33,7 +33,7 @@ struct machine {
 	const uint8_t *rom;
 	
 	uint16_t pc;
-	uint8_t reg[TOTAL_CPU_REGS];
+	uint8_t reg[REGISTER_COUNT];
 	
 	uint8_t zero_page[ZERO_PAGE_LEN];
 	uint8_t stack[STACK_PAGE_LEN];
