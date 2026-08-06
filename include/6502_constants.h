@@ -171,19 +171,19 @@ __attribute((unused)) static enum addressing_mode addressing_mode_from_opcode[OP
 __attribute((unused)) static const char *instruction_to_string[INSTRUCTION_COUNT] = {
 	"INVALID",
 
-	"INS_BIT", "INS_JMP", "INS_JMA", "INS_STY", "INS_LDY", "INS_CPY", "INS_CPX",
-	"INS_ORA", "INS_AND", "INS_EOR", "INS_ADC", "INS_STA", "INS_LDA", "INS_CMP", "INS_SBC",
-	"INS_ASL", "INS_ROL", "INS_LSR", "INS_ROR", "INS_STX", "INS_LDX", "INS_DEC", "INS_INC",
+	"BIT", "JMP", "JMA", "STY", "LDY", "CPY", "CPX",
+	"ORA", "AND", "EOR", "ADC", "STA", "LDA", "CMP", "SBC",
+	"ASL", "ROL", "LSR", "ROR", "STX", "LDX", "DEC", "INC",
 
-	"INS_BRK", "INS_JSR", "INS_RTI", "INS_RTS",
-	"INS_BPL", "INS_BMI", "INS_BVC", "INS_BVS",
-	"INS_BCC", "INS_BCS", "INS_BNE", "INS_BEQ",
-	"INS_PHP", "INS_PLP", "INS_PHA", "INS_PLA",
-	"INS_DEY", "INS_TAY", "INS_INY", "INS_INX",
-	"INS_CLC", "INS_SEC", "INS_CLI", "INS_SEI",
-	"INS_TYA", "INS_CLV", "INS_CLD", "INS_SED",
-	"INS_TXA", "INS_TXS", "INS_TAX", "INS_TSX",
-	"INS_DEX", "INS_NOP",
+	"BRK", "JSR", "RTI", "RTS",
+	"BPL", "BMI", "BVC", "BVS",
+	"BCC", "BCS", "BNE", "BEQ",
+	"PHP", "PLP", "PHA", "PLA",
+	"DEY", "TAY", "INY", "INX",
+	"CLC", "SEC", "CLI", "SEI",
+	"TYA", "CLV", "CLD", "SED",
+	"TXA", "TXS", "TAX", "TSX",
+	"DEX", "NOP",
 };
 
 __attribute((unused)) static uint8_t instruction_to_opcode[INSTRUCTION_COUNT] = {

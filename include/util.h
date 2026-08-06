@@ -7,4 +7,4 @@
 #define u_unreachable(f) \
 	do { fprintf(stderr, "unreachable: %s\n", f); abort(); } while (0)
 
-#define u_str_case_eq(s, t, n)	(!strncasecmp((s), (t), (n)))
+#define u_streq(s, t, n)	(!strncasecmp((s), (t), (n)))

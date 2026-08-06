@@ -25,7 +25,7 @@ struct instruction_map_pair {
 	enum instruction val;
 };
 
-#define INSTRUCTION_MAP_CAPACITY	(INSTRUCTION_COUNT * 3/2)
+#define INSTRUCTION_MAP_CAPACITY	(INSTRUCTION_COUNT * 4)
 
 struct instruction_map {
 	size_t len;
@@ -38,10 +38,19 @@ static struct instruction_map instruction_map = { 0 };
 #define INSTRUCTION_NAME_LEN		3
 #define INSTRUCTION_MAP_HASH_PRIME	50331653
 
+static inline char uppercase(char c)
+{
+	return (c & ~32);
+}
+
 static inline uint64_t instruction_map_hash(const char *key)
 {
-	uint64_t v = (key[0] << 16) | (key[1] << 8) | (key[2]);
-	return INSTRUCTION_MAP_HASH_PRIME ^ v;
+	uint64_t h = (uppercase(key[0]) << 16)
+		| (uppercase(key[1]) << 8)
+		| uppercase(key[2]);
+	h = INSTRUCTION_MAP_HASH_PRIME ^ ((h << 24) | h);
+	h >>= 10;
+	return h;
 }
 
 static void instruction_map_insert(const char *key, enum instruction val)
@@ -77,7 +86,7 @@ static int instruction_map_find(const char *key)
 	uint64_t idx = instruction_map_hash(key) % instruction_map.cap;
 	for (size_t i = 0; i < instruction_map.cap; i++) {
 		const char *map_key = instruction_map.index[idx].key;
-		if (map_key && u_str_case_eq(map_key, key, INSTRUCTION_NAME_LEN))
+		if (map_key && u_streq(map_key, key, INSTRUCTION_NAME_LEN))
 			return instruction_map.index[idx].val;
 		idx = (idx + 1) % instruction_map.cap;
 	}
