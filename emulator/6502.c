@@ -620,7 +620,7 @@ static void machine_execute_instruction(struct machine *m)
 		goto invalid_opcode;
 
 	uint8_t *mem = 0;
-	if (addr_mode != ADDR_MODE_NONE) {
+	if (addr_mode != ADDR_MODE_IMP) {
 		mem = fetch_memory_address(m, addr_mode);
 		if (!mem)
 			return;

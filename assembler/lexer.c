@@ -102,6 +102,9 @@ struct lexer lexer_new(const char *src, size_t srclen)
 		.src = src,
 		.srclen = srclen,
 		.curr = src,
+		.linepos = 0,
+		.col = 1,
+		.line = 1,
 		.token = {
 			.type = T_INVALID,
 			.pos = { 0 },
@@ -121,6 +124,13 @@ static inline bool lexer_eof(const struct lexer *l)
 	return l->curr >= (l->src + l->srclen);
 }
 
+static inline void lex_newline(struct lexer *l)
+{
+	l->token.type = T_NEWLINE;
+	l->line++;
+	l->linepos = lexer_pos(l) - 1;
+}
+
 static void lex_comment(struct lexer *l)
 {
 	l->token.type = T_COMMENT;
@@ -128,8 +138,11 @@ static void lex_comment(struct lexer *l)
 	while (!lexer_eof(l) && *l->curr != '\n')
 		l->curr++;
 
-	if (*l->curr == '\n')
+	if (*l->curr == '\n') {
+		l->linepos = lexer_pos(l);
+		l->line++;
 		l->curr++;
+	}
 }
 
 static inline bool hexdigit(char c)
@@ -262,12 +275,15 @@ void lexer_next(struct lexer *l)
 	}
 
 	l->token.pos.start = lexer_pos(l);
+	l->col = l->token.pos.start - l->linepos;
+	
 	char c = *l->curr++;
 	switch (c) {
 	case '(':	l->token.type = T_LPAREN; break;
 	case ')':	l->token.type = T_RPAREN; break;
 	case ',':	l->token.type = T_COMMA; break;
-	case '\n':	l->token.type = T_NEWLINE; break;
+		
+	case '\n':	lex_newline(l); break;
 
 	case ';':	lex_comment(l); break;
 		
@@ -281,5 +297,40 @@ void lexer_next(struct lexer *l)
 			l->token.type = T_INVALID;
 	} break;
 	}
+	
 	l->token.pos.end = lexer_pos(l);
+}
+
+void lexer_token_print(const struct lexer *l)
+{
+	const struct token *t = &l->token;
+	
+	printf("%zu,%zu %s ", t->pos.start + 1, t->pos.end + 1,
+	       token_type_name[t->type]);
+
+	if (t->type == T_NEWLINE) {
+		printf("'\\n'");
+	} else {
+		size_t lexeme_len = t->pos.end - t->pos.start;
+		const char *lexeme = l->src + t->pos.start;
+		printf("'%.*s'", (int)lexeme_len, lexeme);
+	}
+
+	switch (t->type) {
+	case T_BYTE:		printf(" (%hhx)", t->t_byte); break;
+	case T_BYTE_ADDRESS:	printf(" (%hhx)", t->t_byte_address); break;
+	case T_ADDRESS:		printf(" (%hx)", t->t_address); break;
+	case T_REGISTER: {
+		switch (t->t_register) {
+		case REG_A:	printf(" (A)"); break;
+		case REG_X:	printf(" (X)"); break;
+		case REG_Y:	printf(" (Y)"); break;
+		default: u_unreachable("token_print");
+		}
+	} break;
+	case T_INSTRUCTION:	printf(" (%s)", instruction_to_string[t->t_instruction]); break;
+	default:		break;
+	}
+
+	printf("\n");
 }

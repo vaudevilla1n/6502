@@ -74,7 +74,7 @@ enum instruction : uint8_t {
 enum addressing_mode {
 	ADDR_MODE_INVALID,
 	
-	ADDR_MODE_NONE,
+	ADDR_MODE_IMP,
 	ADDR_MODE_IMM,
 	ADDR_MODE_ACC,
 	ADDR_MODE_REL,

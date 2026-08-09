@@ -4,7 +4,7 @@ CFLAGS := -Wall -Wextra -Wpedantic -std=c23 -g3 -D_DEFAULT_SOURCE -I../include
 
 all: 6502asm
 
-6502asm: 6502asm.c lexer.c
+6502asm: 6502asm.c lexer.c parser.c
 
 clean:
 	rm -f ./6502asm
