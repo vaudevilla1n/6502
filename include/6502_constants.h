@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-enum {
+enum : uint8_t {
 	PS_CARRY,
 	PS_ZERO,
 	PS_INTERRUPT_DISABLE,
@@ -12,7 +12,7 @@ enum {
 	PS_NEGATIVE,
 };
 
-enum machine_register {
+enum machine_register : uint8_t {
 	REG_A,
 	REG_PS,
 	REG_S,
@@ -25,7 +25,7 @@ enum machine_register {
 // missing program counter
 #define REGISTER_COUNT	(REGISTER_END + 1)
 
-enum instruction {
+enum instruction : uint8_t {
 	INS_INVALID,
 
 // JMA -> JMP ABSOLUTE

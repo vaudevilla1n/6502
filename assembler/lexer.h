@@ -3,7 +3,7 @@
 #include "6502_constants.h"
 #include <stddef.h>
 
-enum token_type {
+enum token_type : uint8_t {
 	T_EOF,
 	T_INVALID,
 

@@ -32,7 +32,7 @@ static char *read_file(const char *path, size_t *datlen)
 	return dat;
 
 cleanup_file:
-	fclose(fp);
+
 	return 0;
 }
 
