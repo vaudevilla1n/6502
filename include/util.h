@@ -23,10 +23,9 @@
 #define u_list_head_init(h)		do { (h)->next = (h); (h)->prev = (h); } while (0)
 #define u_list_head_append(h, e) \
 	do {					\
-		typeof(h) tail = (h)->prev;	\
-		(e)->prev = tail;		\
-		tail->next = (e);		\
+		(e)->prev = (h)->prev;		\
 		(e)->next = (h);		\
+		(h)->prev->next = (e);		\
 		(h)->prev = (e);		\
 	} while (0)
 

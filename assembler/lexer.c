@@ -1,6 +1,5 @@
 #include "lexer.h"
 
-#include "util.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -70,7 +69,7 @@ static void instruction_map_insert(const char *key, enum instruction val)
 	exit(1);
 }
 
-static void instruction_map_init(void)
+void lexer_instruction_map_init(void)
 {
 	instruction_map.cap = INSTRUCTION_MAP_CAPACITY;
 	instruction_map.len = 0;
@@ -94,29 +93,54 @@ static int instruction_map_find(const char *key)
 	return -1;
 }
 
-struct lexer lexer_new(const char *src, size_t srclen)
+void lexer_init(struct lexer *l, const char *file, const char *src, size_t srclen, struct u_arena *arena)
 {
-	instruction_map_init();
-	
-	struct lexer l = {
-		.src = src,
+	*l = (struct lexer) {
+		.arena = arena,
+
 		.srclen = srclen,
+		.src = src,
+		.file = file,
+		
 		.curr = src,
 		.linepos = 0,
 		.col = 1,
 		.line = 1,
-		.token = {
-			.type = T_INVALID,
-			.pos = { 0 },
-		},
+		
+		.token = { .type = T_INVALID },
+
+		.err = { 0 },
 	};
-	lexer_next(&l);
-	return l;
+	
+	u_list_head_init(&l->err);
+	lexer_next(l);
+}
+
+const char *lexer_token_text(const struct lexer *l, size_t *out_len)
+{
+	*out_len = l->token.end - l->token.start;
+	return l->src + l->token.start;
 }
 
 static inline size_t lexer_pos(const struct lexer *l)
 {
 	return l->curr - l->src;
+}
+
+void lexer_error(struct lexer *l, const char *msg)
+{
+	l->token.type = T_INVALID;
+	l->token.end = lexer_pos(l);
+	
+	struct assembler_error e = {
+		.file = l->file,
+		.line = l->line,
+		.col = l->col,
+		.msg = msg,
+	};
+	e.src = lexer_token_text(l, &e.srclen);
+
+	assembler_error_append(&l->err, &e, l->arena);
 }
 
 static inline bool lexer_eof(const struct lexer *l)
@@ -175,7 +199,7 @@ static void lex_address(struct lexer *l)
 		l->token.t_address = val;
 	} break;
 		
-	default: l->token.type = T_INVALID; break;
+	default: lexer_error(l, "invalid number literal"); break;
 	}
 }
 
@@ -194,13 +218,8 @@ static void lex_byte(struct lexer *l)
 		l->token.type = T_BYTE;
 		l->token.t_byte = val;
 	} else {
-		l->token.type = T_INVALID;
+		lexer_error(l, "invalid byte literal");
 	}
-}
-
-static inline bool identifier(char c)
-{
-	return (c == '_') || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z');
 }
 
 static inline bool whitespace(char c)
@@ -208,14 +227,29 @@ static inline bool whitespace(char c)
 	return (c <= 0x20);
 }
 
+static inline bool alpha(char c)
+{
+	return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z');
+}
+
+static inline bool digit(char c)
+{
+	return ('0' <= c && c <= '9');
+}
+
+static inline bool identifier(char c)
+{
+	return alpha(c) || digit(c) || (c == '_');
+}
+
 static inline int register_find(char c)
 {
 	switch (c) {
-	case 'a': case 'A':
+	case 'A':
 		return REG_A;
-	case 'x': case 'X':
+	case 'X':
 		return REG_X;
-	case 'y': case 'Y':
+	case 'Y':
 		return REG_Y;
 	default:
 		return -1;
@@ -224,25 +258,39 @@ static inline int register_find(char c)
 
 static void lex_identifier(struct lexer *l)
 {
-	l->token.type = T_INVALID;
+	bool invalid_chars = false;
 	
 	size_t start = lexer_pos(l) - 1;
 	while (!lexer_eof(l) && !whitespace(*l->curr))
 	{
-		if (!identifier(*l->curr)) {
-			l->token.type = T_INVALID;
+		if (*l->curr == ':') {
+			l->token.type = T_LABEL;
+			l->curr++;
 			break;
 		}
+		
+		if (!identifier(*l->curr))
+			invalid_chars = true;
+		
 		l->curr++;
 	}
+
+	if (invalid_chars)
+		goto invalid_identifier;
+	
 	size_t len = lexer_pos(l) - start;
 
-	if (len == 1) {
+	if (l->token.type == T_LABEL) {
+		l->token.label.id = l->src + start;
+		l->token.label.len = len - 1;
+	} else if (len == 1) {
 		char id = l->curr[-1];
 		int reg = register_find(id);
 		if (reg != -1) {
 			l->token.type = T_REGISTER;
 			l->token.t_register = reg;
+		} else {
+			goto invalid_identifier;
 		}
 	} else if (len == 3) {
 		const char *id = l->src + start;
@@ -250,8 +298,17 @@ static void lex_identifier(struct lexer *l)
 		if (ins != -1) {
 			l->token.type = T_INSTRUCTION;
 			l->token.t_instruction = ins;
+		} else {
+			goto invalid_identifier;
 		}
-	} 
+	} else {
+		goto invalid_identifier;
+	}
+
+	return;
+
+invalid_identifier:
+	lexer_error(l, "invalid identifier");
 }
 
 static inline bool skippable_whitespace(char c)
@@ -269,13 +326,13 @@ void lexer_next(struct lexer *l)
 
 	if (lexer_eof(l)) {
 		l->token.type = T_EOF;
-		l->token.pos.start = l->srclen;
-		l->token.pos.end = l->srclen;
+		l->token.start = l->srclen;
+		l->token.end = l->srclen;
 		return;
 	}
 
-	l->token.pos.start = lexer_pos(l);
-	l->col = l->token.pos.start - l->linepos;
+	l->token.start = lexer_pos(l);
+	l->col = l->token.start - l->linepos;
 	
 	char c = *l->curr++;
 	switch (c) {
@@ -291,28 +348,28 @@ void lexer_next(struct lexer *l)
 	case '#':	lex_byte(l); break;
 		
 	default: {
-		if (identifier(c))
+		if (alpha(c) || c == '.' || c == '_')
 			lex_identifier(l);
 		else
-			l->token.type = T_INVALID;
+			lexer_error(l, "unknown token");
 	} break;
 	}
 	
-	l->token.pos.end = lexer_pos(l);
+	l->token.end = lexer_pos(l);
 }
 
 void lexer_token_print(const struct lexer *l)
 {
 	const struct token *t = &l->token;
 	
-	printf("%zu,%zu %s ", t->pos.start + 1, t->pos.end + 1,
+	printf("%zu,%zu %s ", t->start + 1, t->end + 1,
 	       token_type_name[t->type]);
 
 	if (t->type == T_NEWLINE) {
 		printf("'\\n'");
 	} else {
-		size_t lexeme_len = t->pos.end - t->pos.start;
-		const char *lexeme = l->src + t->pos.start;
+		size_t lexeme_len = t->end - t->start;
+		const char *lexeme = l->src + t->start;
 		printf("'%.*s'", (int)lexeme_len, lexeme);
 	}
 

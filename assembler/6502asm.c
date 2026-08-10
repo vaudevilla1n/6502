@@ -36,20 +36,26 @@ static char *read_file(const char *path, size_t *datlen)
 	return dat;
 }
 
-static void dump_tokens(char *src, size_t srclen)
+static void dump_tokens(const char *file, char *src, size_t srclen, struct u_arena *arena)
 {
-	struct lexer l = lexer_new(src, srclen);
+	struct lexer l;
+	lexer_init(&l, file, src, srclen, arena);
+	
 	for (;;) {
 		lexer_token_print(&l);
 		if (l.token.type == T_EOF)
 			break;
 		lexer_next(&l);
 	}
+
+	u_arena_free(arena);
 }
 
 int main(int argc, char **argv)
 {
-	struct u_arena parsing_arena = u_arena_new(u_KiB(64));
+	struct u_arena arena = u_arena_new(u_KiB(64));
+
+	lexer_instruction_map_init();
 	
 	for (int i = 1; i < argc; i++) {
 		const char *path = argv[i];
@@ -63,13 +69,18 @@ int main(int argc, char **argv)
 
 		// testing
 		{
-			dump_tokens(src, len);
+			dump_tokens(path, src, len, &arena);
 		}
 
-		struct lexer l = lexer_new(src, len);
-		struct parser p = parser_new(path, &l, &parsing_arena);
-		struct stmt *stmts = parse(&p);
+		struct lexer l;
+		lexer_init(&l, path, src, len, &arena);
 		
+		struct stmt *stmts = parse(&l);
 		printf("%p\n", (void *)stmts);
+
+		for (struct assembler_error *e = l.err.next; e != &l.err; e = e->next)
+			printf("%s:%zu:%zu:error %s: '%.*s'\n", e->file, e->line, e->col, e->msg, (int)e->srclen, e->src);
+		
+		u_arena_free(&arena);
 	}
 }
