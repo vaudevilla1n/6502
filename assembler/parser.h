@@ -4,6 +4,7 @@
 #include "assembler_error.h"
 #include "lexer.h"
 #include "util.h"
+#include <stdint.h>
 
 #define STMT_MAX_OPERANDS	2
 
@@ -24,7 +25,10 @@ struct stmt {
 			struct token ops[STMT_MAX_OPERANDS];
 		} instruction;
 
-		struct token label;
+		struct {
+			uint16_t address;
+			struct token token;
+		} label;
 	};
 
 	struct stmt *next;

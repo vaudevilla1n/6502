@@ -13,6 +13,7 @@ enum token_type : uint8_t {
 	
 	T_LPAREN, T_RPAREN,
 	T_COMMA, T_NEWLINE,
+	T_SEMICOLON,
 
 	T_INSTRUCTION, T_REGISTER, T_LABEL,
 		
@@ -58,7 +59,7 @@ struct lexer {
 
 	struct token token;
 	
-	struct assembler_error err;
+	struct assembler_error errs;
 };
 
 void lexer_instruction_map_init(void);

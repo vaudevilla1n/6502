@@ -1,3 +1,6 @@
+/*
+  https://www.nesdev.org/obelisk-6502-guide/addressing.html -> addressing modes
+ */
 #pragma once
 
 #include <stdint.h>
@@ -88,7 +91,7 @@ enum addressing_mode {
 	ADDR_MODE_IND_X,
 	ADDR_MODE_IND_Y,
 	
-	ADDR_MODE_COUNT,
+	ADDRESSING_MODE_COUNT,
 };
 
 #define KB(n)	((n) * (2 << 10))
@@ -202,7 +205,7 @@ __attribute((unused)) static uint8_t instruction_to_opcode[INSTRUCTION_COUNT] = 
 	0xCA, 0xEA,
 };
 
-__attribute((unused)) static enum addressing_mode addressing_mode_to_opcode[INSTRUCTION_GROUPS][ADDR_MODE_COUNT] = {
+__attribute((unused)) static enum addressing_mode addressing_mode_to_opcode[INSTRUCTION_GROUPS][ADDRESSING_MODE_COUNT] = {
 	{
 		[ADDR_MODE_IMM] = 0x00,
 		[ADDR_MODE_ZERO] = 0x01,
@@ -228,4 +231,20 @@ __attribute((unused)) static enum addressing_mode addressing_mode_to_opcode[INST
 		[ADDR_MODE_ZERO_X] = 0x05,
 		[ADDR_MODE_ABS_X] = 0x07,
 	}
+};
+
+__attribute((unused)) static uint8_t addressing_mode_size[ADDRESSING_MODE_COUNT] = {
+	[ADDR_MODE_IMP] = 0x00,
+	[ADDR_MODE_IMM] = 0x01,
+	[ADDR_MODE_ACC] = 0x00,
+	[ADDR_MODE_REL] = 0x01,
+	[ADDR_MODE_ZERO] = 0x01,
+	[ADDR_MODE_ZERO_X] = 0x01,
+	[ADDR_MODE_ZERO_Y] = 0x01,
+	[ADDR_MODE_ABS] = 0x02,
+	[ADDR_MODE_ABS_X] = 0x02,
+	[ADDR_MODE_ABS_Y] = 0x02,
+	[ADDR_MODE_IND] = 0x02,
+	[ADDR_MODE_IND_X] = 0x01,
+	[ADDR_MODE_IND_Y] = 0x01,
 };

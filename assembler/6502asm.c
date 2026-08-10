@@ -2,7 +2,6 @@
   assembler for 6502 assembly
 
   https://planetmath.org/goodhashtableprimes -> used for hash map primes
-  https://www.nesdev.org/obelisk-6502-guide/addressing.html -> addressing modes
  */
 
 #define UTIL_H_IMPL
@@ -78,7 +77,7 @@ int main(int argc, char **argv)
 		struct stmt *stmts = parse(&l);
 		printf("%p\n", (void *)stmts);
 
-		for (struct assembler_error *e = l.err.next; e != &l.err; e = e->next)
+		for (struct assembler_error *e = l.errs.next; e != &l.errs; e = e->next)
 			printf("%s:%zu:%zu:error %s: '%.*s'\n", e->file, e->line, e->col, e->msg, (int)e->srclen, e->src);
 		
 		u_arena_free(&arena);
