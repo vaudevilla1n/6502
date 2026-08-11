@@ -41,7 +41,7 @@ static void dump_tokens(const char *file, char *src, size_t srclen, struct u_are
 	lexer_init(&l, file, src, srclen, arena);
 	
 	for (;;) {
-		lexer_token_print(&l);
+		token_print(&l.token);
 		if (l.token.type == T_EOF)
 			break;
 		lexer_next(&l);
@@ -77,8 +77,9 @@ int main(int argc, char **argv)
 		struct stmt *stmts = parse(&l);
 		printf("%p\n", (void *)stmts);
 
-		for (struct assembler_error *e = l.errs.next; e != &l.errs; e = e->next)
-			printf("%s:%zu:%zu:error %s: '%.*s'\n", e->file, e->line, e->col, e->msg, (int)e->srclen, e->src);
+		u_list_for_each(&l.errs, e)
+			printf("%s:%zu:%zu:error %s: '%.*s'\n",
+			       e->file, e->token.line, e->token.col, e->msg, (int)e->token.len, e->token.text);
 		
 		u_arena_free(&arena);
 	}

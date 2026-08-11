@@ -22,11 +22,12 @@ struct stmt {
 	union {
 		struct {
 			enum addressing_mode addr_mode;
+			struct token ins;
 			struct token ops[STMT_MAX_OPERANDS];
-		} instruction;
+		} ins;
 
 		struct {
-			uint16_t address;
+			uint16_t addr;
 			struct token token;
 		} label;
 	};

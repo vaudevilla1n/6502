@@ -20,14 +20,15 @@
 #define u_MiB(x)	((x) * (1 << 20))
 #define u_GiB(x)	((x) * (1 << 30))
 
-#define u_list_head_init(h)		do { (h)->next = (h); (h)->prev = (h); } while (0)
-#define u_list_head_append(h, e) \
+#define u_list_init(h)		do { (h)->next = (h); (h)->prev = (h); } while (0)
+#define u_list_append(h, e) \
 	do {					\
 		(e)->prev = (h)->prev;		\
 		(e)->next = (h);		\
 		(h)->prev->next = (e);		\
 		(h)->prev = (e);		\
 	} while (0)
+#define u_list_for_each(h, e)	for (typeof (h) e = (h)->next; e != (h); e = e->next)
 
 struct u_arena {
 	size_t pos;

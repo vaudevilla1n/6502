@@ -1,19 +1,15 @@
 #pragma once
 
 #include "util.h"
+#include "token.h"
 
 struct assembler_error {
 	const char *file;
-	size_t col;
-	size_t line;
-	
 	const char *msg;
-
-	size_t srclen;
-	const char *src;
+	struct token token;
 
 	struct assembler_error *next;
 	struct assembler_error *prev;
 };
 
-void assembler_error_append(struct assembler_error *err_head, struct assembler_error *e, struct u_arena *arena);
+void assembler_error(struct assembler_error *err_head, const char *file, const struct token *token, const char *msg, struct u_arena *arena);
