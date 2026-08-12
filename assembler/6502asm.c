@@ -47,7 +47,7 @@ static void dump_tokens(const char *file, char *src, size_t srclen, struct u_are
 		lexer_next(&l);
 	}
 
-	u_arena_free(arena);
+	u_arena_clear(arena);
 }
 
 int main(int argc, char **argv)
@@ -81,6 +81,6 @@ int main(int argc, char **argv)
 			printf("%s:%zu:%zu:error %s: '%.*s'\n",
 			       e->file, e->token.line, e->token.col, e->msg, (int)e->token.len, e->token.text);
 		
-		u_arena_free(&arena);
+		u_arena_clear(&arena);
 	}
 }

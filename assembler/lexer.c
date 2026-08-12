@@ -274,6 +274,8 @@ void lexer_next(struct lexer *l)
 	
 	if (lexer_eof(l)) {
 		l->token.type = T_EOF;
+		l->token.len = 3;
+		l->token.text = "EOF";
 		return;
 	}
 

@@ -40,7 +40,8 @@ void *u_calloc(size_t n, size_t size);
 
 struct u_arena u_arena_new(size_t cap);
 void *u_arena_alloc(struct u_arena *a, size_t size);
-void u_arena_free(struct u_arena *a);
+void u_arena_free(struct u_arena *a, size_t size);
+void u_arena_clear(struct u_arena *a);
 void u_arena_del(struct u_arena *a);
 
 #ifdef UTIL_H_IMPL
@@ -76,7 +77,19 @@ void *u_arena_alloc(struct u_arena *a, size_t size)
 	return p;
 }
 
-void u_arena_free(struct u_arena *a)
+void u_arena_free(struct u_arena *a, size_t size)
+{
+	size += size & (sizeof(void *) - 1);
+	
+	if (a->pos < size) {
+		fprintf(stderr, "freeing more memory than allocated on arena\n");
+		abort();
+	}
+
+	a->pos -= size;
+}
+
+void u_arena_clear(struct u_arena *a)
 {
 	a->pos = 0;
 }
