@@ -22,10 +22,7 @@ void token_print(const struct token *t)
 	printf("%zu,%zu %s ", t->line, t->col,
 	       token_type_name[t->type]);
 
-	if (t->type == T_NEWLINE)
-		printf("'\\n'");
-	else
-		printf("'%.*s'", (int)t->len, t->text);
+	printf("'%.*s'", (int)t->len, t->text);
 	
 	switch (t->type) {
 	case T_BYTE:		printf(" (%hhx)", t->byte); break;

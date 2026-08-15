@@ -7,8 +7,6 @@
 #include <stddef.h>
 
 struct lexer {
-	struct u_arena *arena;
-	
 	size_t srclen;
 	const char *src;
 	const char *file;
@@ -19,11 +17,10 @@ struct lexer {
 	size_t linepos;
 
 	struct token token;
-	
-	struct assembler_error errs;
 };
 
 void lexer_instruction_map_init(void);
 
-void lexer_init(struct lexer *l, const char *file, const char *src, size_t srclen, struct u_arena *arena);
+struct lexer lexer_new(const char *file, const char *src, size_t srclen);
 void lexer_next(struct lexer *l);
+struct token lexer_next_token(struct lexer *l);

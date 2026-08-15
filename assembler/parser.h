@@ -21,8 +21,8 @@ struct stmt {
 	// left as union because i will most likely be parsing more statements
 	union {
 		struct {
-			enum addressing_mode addr_mode;
-			struct token ins;
+			size_t nops;
+			struct token type;
 			struct token ops[STMT_MAX_OPERANDS];
 		} ins;
 

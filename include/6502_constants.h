@@ -51,9 +51,6 @@ enum instruction : uint8_t {
 
 #define INSTRUCTION_INDEX_FIRST	(1)
 
-#define INSTRUCTION_GROUPS	3
-#define INSTRUCTION_GROUP_MAX	8
-
 #define GROUP_ONE_START	INS_BIT
 #define GROUP_ONE_END	INS_CPX
 #define instruction_is_group_one(ins) \
@@ -111,8 +108,10 @@ enum addressing_mode {
 #define opcode_addressing_mode(o)	(((o) >> 2) & 7)
 #define opcode_instruction(o)		((o) & 3)
 
-#define OPCODE_GROUPS		3
-#define OPCODE_INSTRUCTIONS	8
+#define OPCODE_SIZE		2
+
+#define OPCODE_GROUPS			3
+#define OPCODE_GROUP_INSTRUCTIONS	8
 
 /*
   riddling this with static and __attribute((unused)) is kinda nuts
@@ -120,7 +119,7 @@ enum addressing_mode {
   but we ball
 */
 
-__attribute((unused)) static enum instruction instruction_from_opcode[OPCODE_GROUPS][OPCODE_INSTRUCTIONS] = {
+__attribute((unused)) static enum instruction instruction_from_opcode[OPCODE_GROUPS][OPCODE_GROUP_INSTRUCTIONS] = {
 	{ INS_BIT, INS_JMP, INS_JMA, INS_STY, INS_LDY, INS_CPY, INS_CPX },
 	{ INS_ORA, INS_AND, INS_EOR, INS_ADC, INS_STA, INS_LDA, INS_CMP, INS_SBC },
 	{ INS_ASL, INS_ROL, INS_LSR, INS_ROR, INS_STX, INS_LDX, INS_DEC, INS_INC },
@@ -138,7 +137,7 @@ __attribute((unused)) static enum instruction special_instruction_from_opcode[25
 	[0xCA] = INS_DEX, [0xEA] = INS_NOP,
 };
 
-__attribute((unused)) static enum addressing_mode addressing_mode_from_opcode[OPCODE_GROUPS][OPCODE_INSTRUCTIONS] = {
+__attribute((unused)) static enum addressing_mode addressing_mode_from_opcode[OPCODE_GROUPS][OPCODE_GROUP_INSTRUCTIONS] = {
 	{
 		ADDR_MODE_IMM,
 		ADDR_MODE_ZERO,
@@ -205,7 +204,7 @@ __attribute((unused)) static uint8_t instruction_to_opcode[INSTRUCTION_COUNT] = 
 	0xCA, 0xEA,
 };
 
-__attribute((unused)) static enum addressing_mode addressing_mode_to_opcode[INSTRUCTION_GROUPS][ADDRESSING_MODE_COUNT] = {
+__attribute((unused)) static enum addressing_mode addressing_mode_to_opcode[OPCODE_GROUPS][ADDRESSING_MODE_COUNT] = {
 	{
 		[ADDR_MODE_IMM] = 0x00,
 		[ADDR_MODE_ZERO] = 0x01,

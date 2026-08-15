@@ -12,4 +12,9 @@ struct assembler_error {
 	struct assembler_error *prev;
 };
 
-void assembler_error(struct assembler_error *err_head, const char *file, const struct token *token, const char *msg, struct u_arena *arena);
+extern struct assembler_error assembler_error_list;
+
+void assembler_error_list_init(void);
+void assembler_error_list_clear(void);
+
+void assembler_error(const char *file, const struct token *token, const char *msg);

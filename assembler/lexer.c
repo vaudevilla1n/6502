@@ -79,11 +79,9 @@ static int instruction_map_find(const char *key)
 	return -1;
 }
 
-void lexer_init(struct lexer *l, const char *file, const char *src, size_t srclen, struct u_arena *arena)
+struct lexer lexer_new(const char *file, const char *src, size_t srclen)
 {
-	*l = (struct lexer) {
-		.arena = arena,
-
+	struct lexer l = {
 		.srclen = srclen,
 		.src = src,
 		.file = file,
@@ -93,12 +91,10 @@ void lexer_init(struct lexer *l, const char *file, const char *src, size_t srcle
 		.line = 1,
 		
 		.token = { .type = T_INVALID },
-
-		.errs = { 0 },
 	};
-	
-	u_list_init(&l->errs);
-	lexer_next(l);
+	lexer_next(&l);
+
+	return l;
 }
 
 static inline size_t lexer_pos(const struct lexer *l)
@@ -111,7 +107,7 @@ static void lexer_error(struct lexer *l, size_t start, const char *msg)
 	l->token.type = T_INVALID;
 	l->token.len = lexer_pos(l) - start;
 	l->token.text = l->src + start;
-	assembler_error(&l->errs, l->file, &l->token, msg, l->arena);
+	assembler_error(l->file, &l->token, msg);
 }
 
 static inline bool lexer_eof(const struct lexer *l)
@@ -122,6 +118,8 @@ static inline bool lexer_eof(const struct lexer *l)
 static inline void lex_newline(struct lexer *l)
 {
 	l->token.type = T_NEWLINE;
+	l->token.len = 3;
+	l->token.text = "EOL";
 	l->line++;
 	l->linepos = lexer_pos(l) - 1;
 }
@@ -259,6 +257,11 @@ static inline bool skippable_whitespace(char c)
 	return (c <= 0x20) && c != '\n';
 }
 
+static inline bool special_token(enum token_type type)
+{
+	return (type == T_EOF) || (type == T_NEWLINE) || (type == T_INVALID);
+}
+
 void lexer_next(struct lexer *l)
 {
 	if (l->token.type == T_EOF)
@@ -301,8 +304,16 @@ void lexer_next(struct lexer *l)
 	} break;
 	}
 
-	if (l->token.type != T_INVALID) {
+	if (!special_token(l->token.type)) {
 		l->token.len = lexer_pos(l) - start;
 		l->token.text = l->src + start;
 	}
 }
+
+struct token lexer_next_token(struct lexer *l)
+{
+	struct token t = l->token;
+	lexer_next(l);
+	return t;
+}
+	

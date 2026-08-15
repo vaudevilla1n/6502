@@ -35,25 +35,9 @@ static char *read_file(const char *path, size_t *datlen)
 	return dat;
 }
 
-static void dump_tokens(const char *file, char *src, size_t srclen, struct u_arena *arena)
-{
-	struct lexer l;
-	lexer_init(&l, file, src, srclen, arena);
-	
-	for (;;) {
-		token_print(&l.token);
-		if (l.token.type == T_EOF)
-			break;
-		lexer_next(&l);
-	}
-
-	u_arena_clear(arena);
-}
-
 int main(int argc, char **argv)
 {
-	struct u_arena arena = u_arena_new(u_KiB(64));
-
+	assembler_error_list_init();
 	lexer_instruction_map_init();
 	
 	for (int i = 1; i < argc; i++) {
@@ -66,21 +50,23 @@ int main(int argc, char **argv)
 			continue;
 		}
 
-		// testing
-		{
-			dump_tokens(path, src, len, &arena);
-		}
-
-		struct lexer l;
-		lexer_init(&l, path, src, len, &arena);
+		struct lexer l = lexer_new(path, src, len);
 		
 		struct stmt *stmts = parse(&l);
-		printf("%p\n", (void *)stmts);
 
-		u_list_for_each(&l.errs, e)
-			printf("%s:%zu:%zu:error %s: '%.*s'\n",
-			       e->file, e->token.line, e->token.col, e->msg, (int)e->token.len, e->token.text);
-		
-		u_arena_clear(&arena);
+		u_list_for_each(&assembler_error_list, e) { 
+			printf("%s:%zu:%zu:error %s: '%.*s'\n", e->file, e->token.line, e->token.col, e->msg, (int)e->token.len, e->token.text);
+		}
+
+		u_list_for_each(stmts, stmt) {
+			switch (stmt->type) {
+			case STMT_INVALID:	printf("invalid\n"); break;
+			case STMT_LABEL:	printf("%.*s (%hx)\n", (int)stmt->label.token.len, stmt->label.token.text, stmt->label.addr); break;
+			case STMT_INSTRUCTION:	printf("%.*s\n", (int)stmt->ins.type.len, stmt->ins.type.text); break;
+			default: u_unreachable("for_each stmt");
+			}
+		}
+
+		assembler_error_list_clear();
 	}
 }
