@@ -159,13 +159,13 @@ static void lex_address(struct lexer *l)
 	case 2:	{
 		uint32_t val = strtoul(l->src + start, 0, 16);
 		l->token.type = T_BYTE_ADDRESS;
-		l->token.t_byte_addr = val;
+		l->token.byte_addr = val;
 	} break;
 		
 	case 4: {
 		uint32_t val = strtoul(l->src + start, 0, 16);
 		l->token.type = T_ADDRESS;
-		l->token.t_addr = val;
+		l->token.addr = val;
 	} break;
 		
 	default: lexer_error(l, start, "invalid number literal"); break;
@@ -185,7 +185,7 @@ static void lex_byte(struct lexer *l)
 	if (digits == 2) {
 		uint32_t val = strtoul(l->src + start, 0, 16);
 		l->token.type = T_BYTE;
-		l->token.t_byte = val;
+		l->token.byte = val;
 	} else {
 		lexer_error(l, start, "invalid byte literal");
 	}
@@ -238,7 +238,7 @@ static void lex_identifier(struct lexer *l)
 		int reg = register_find(id);
 		if (reg != -1) {
 			l->token.type = T_REGISTER;
-			l->token.t_reg = reg;
+			l->token.reg = reg;
 			return;
 		}
 	} else if (len == 3) {
@@ -246,7 +246,7 @@ static void lex_identifier(struct lexer *l)
 		int ins = instruction_map_find(id);
 		if (ins != -1) {
 			l->token.type = T_INSTRUCTION;
-			l->token.t_ins = ins;
+			l->token.ins = ins;
 			return;
 		} 
 	}

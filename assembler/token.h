@@ -33,11 +33,11 @@ struct token {
 	size_t line;
 	
 	union {
-		uint8_t t_byte;
-		uint8_t t_byte_addr;
-		uint16_t t_addr;
-		enum instruction t_ins;
-		enum machine_register t_reg;
+		uint8_t byte;
+		uint8_t byte_addr;
+		uint16_t addr;
+		enum instruction ins;
+		enum machine_register reg;
 	};
 };
 

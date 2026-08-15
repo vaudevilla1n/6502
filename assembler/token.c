@@ -28,18 +28,18 @@ void token_print(const struct token *t)
 		printf("'%.*s'", (int)t->len, t->text);
 	
 	switch (t->type) {
-	case T_BYTE:		printf(" (%hhx)", t->t_byte); break;
-	case T_BYTE_ADDRESS:	printf(" (%hhx)", t->t_byte_addr); break;
-	case T_ADDRESS:		printf(" (%hx)", t->t_addr); break;
+	case T_BYTE:		printf(" (%hhx)", t->byte); break;
+	case T_BYTE_ADDRESS:	printf(" (%hhx)", t->byte_addr); break;
+	case T_ADDRESS:		printf(" (%hx)", t->addr); break;
 	case T_REGISTER: {
-		switch (t->t_reg) {
+		switch (t->reg) {
 		case REG_A:	printf(" (A)"); break;
 		case REG_X:	printf(" (X)"); break;
 		case REG_Y:	printf(" (Y)"); break;
 		default: u_unreachable("token_print");
 		}
 	} break;
-	case T_INSTRUCTION:	printf(" (%s)", instruction_to_string[t->t_ins]); break;
+	case T_INSTRUCTION:	printf(" (%s)", instruction_to_string[t->ins]); break;
 	default:		break;
 	}
 
