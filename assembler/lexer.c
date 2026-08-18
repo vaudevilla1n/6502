@@ -189,11 +189,6 @@ static void lex_byte(struct lexer *l)
 	}
 }
 
-static inline bool whitespace(char c)
-{
-	return (c <= 0x20);
-}
-
 static inline bool alpha(char c)
 {
 	return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z');

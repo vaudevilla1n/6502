@@ -63,8 +63,17 @@ static bool expect(struct lexer *l, enum token_type type, const char *msg)
 
 static inline bool next_is_operand(struct lexer *l)
 {
-	return next_is(l, T_BYTE) || next_is(l, T_BYTE_ADDRESS) || next_is(l, T_ADDRESS)
-		|| next_is(l, T_LABEL);
+	switch (l->token.type) {
+	case T_BYTE:
+	case T_BYTE_ADDRESS:
+	case T_ADDRESS:
+	case T_LABEL:
+		return true;
+	case T_REGISTER:
+		return (l->token.reg == REG_A);
+	default:
+		return false;
+	}
 }
 
 static void parse_operands(struct lexer *l, struct stmt *s)

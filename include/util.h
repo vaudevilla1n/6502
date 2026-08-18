@@ -5,11 +5,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdbool.h>
+#include <ctype.h>
 
 #define u_unreachable(f) \
 	do { fprintf(stderr, "unreachable: %s\n", f); abort(); } while (0)
-
-#define u_streq(s, t, n)	(!strncasecmp((s), (t), (n)))
 
 #define u_unused(x)	(void)(x)
 #define u_todo(func)	do { fprintf(stderr, "todo: %s\n", func); abort(); } while (0)
@@ -30,6 +30,8 @@
 	} while (0)
 #define u_list_for_each(h, e)	for (typeof (h) e = (h)->next; e != (h); e = e->next)
 
+bool u_streq(const char *restrict s, const char *restrict t, size_t n);
+
 struct u_arena {
 	size_t pos;
 	size_t cap;
@@ -45,6 +47,14 @@ void u_arena_clear(struct u_arena *a);
 void u_arena_del(struct u_arena *a);
 
 #ifdef UTIL_H_IMPL
+
+bool u_streq(const char *restrict s, const char *restrict t, size_t n)
+{
+	while (n-- && *s && *t)
+		if (tolower(*s) != tolower(*t))
+			return false;
+	return true;
+}
 
 void *u_calloc(size_t n, size_t size)
 {
