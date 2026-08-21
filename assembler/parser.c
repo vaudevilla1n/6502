@@ -23,18 +23,17 @@
 #include <stdbool.h>
 
 static struct u_arena allocator = { 0 };
-static uint16_t current_program_address;
 
-static inline struct stmt *statement_new(enum stmt_type type)
+static inline struct stmt *stmt_new(enum stmt_type type)
 {
 	struct stmt *s = u_arena_alloc(&allocator, sizeof(*s));
 	s->type = type;
 	return s;
 }
 
-static inline void parser_error(struct lexer *l, const struct token *t, const char *msg)
+static inline void parser_error(const struct lexer *l, const char *msg)
 {
-	assembler_error(l->file, t, msg);
+	assembler_error(l->file, &l->token, msg);
 }
 
 static inline bool next_is(struct lexer *l, enum token_type type)
@@ -54,7 +53,7 @@ static bool expect(struct lexer *l, enum token_type type, const char *msg)
 {
 	bool eaten = eat(l, type);
 	if (!eaten) {
-		parser_error(l, &l->token, msg);
+		parser_error(l, msg);
 		while (l->token.type != T_EOF && l->token.type != T_NEWLINE)
 			lexer_next(l);
 	}
@@ -83,7 +82,7 @@ static void parse_operands(struct lexer *l, struct stmt *s)
 	if (!next_is_operand(l)) {
 		if (open) {
 			s->type = STMT_INVALID;
-			parser_error(l, &l->token, "expected operand");
+			parser_error(l, "expected operand");
 		}
 		return;
 	}
@@ -97,7 +96,7 @@ static void parse_operands(struct lexer *l, struct stmt *s)
 		if (next_is(l, T_REGISTER) && (l->token.reg == REG_X || l->token.reg == REG_Y)) {
 			s->ins.ops[s->ins.nops++] = lexer_next_token(l);
 		} else {
-			parser_error(l, &l->token, "expected register (X or Y)");
+			parser_error(l, "expected register (X or Y)");
 			lexer_next(l);
 			s->type = STMT_INVALID;
 		}
@@ -109,8 +108,8 @@ static void parse_operands(struct lexer *l, struct stmt *s)
 
 static struct stmt *parse_instruction(struct lexer *l)
 {
-	struct stmt *s = statement_new(STMT_INSTRUCTION);
-	s->ins.type = lexer_next_token(l);
+	struct stmt *s = stmt_new(STMT_INSTRUCTION);
+	s->ins.token = lexer_next_token(l);
 	s->ins.nops = 0;
 
 	parse_operands(l, s);
@@ -118,34 +117,23 @@ static struct stmt *parse_instruction(struct lexer *l)
 	if (s->type == STMT_INVALID)
 		return s;
 
-	size_t ins_bytes = OPCODE_SIZE;
-	if (s->ins.nops) {
-		const struct token *op = s->ins.ops;
-		if (op->type == T_BYTE || op->type == T_BYTE_ADDRESS)
-			ins_bytes++;
-		else if (op->type == T_ADDRESS)
-			ins_bytes += 2;
-	}
-	current_program_address += ins_bytes;
-
 	return s;
 }
 
 static struct stmt *parse_label(struct lexer *l)
 {
-	struct token t_label = l->token;
+	struct token label = l->token;
 	lexer_next(l);
 	
 	if (!expect(l, T_SEMICOLON, "expected semicolon after label declaration"))
-		return statement_new(STMT_INVALID);
+		return stmt_new(STMT_INVALID);
 
-	struct stmt *s = statement_new(STMT_LABEL);
-	s->label.token = t_label;
-	s->label.addr = current_program_address;
+	struct stmt *s = stmt_new(STMT_LABEL);
+	s->label = label;
 	return s;
 }
 
-static struct stmt *parse_statement(struct lexer *l)
+static struct stmt *parse_stmt(struct lexer *l)
 {
 	while (l->token.type == T_NEWLINE)
 		lexer_next(l);
@@ -158,8 +146,8 @@ static struct stmt *parse_statement(struct lexer *l)
 	case T_EOF:		return 0;
 		
 	default:
-		parser_error(l, &l->token, "erroneous token");
-		return statement_new(STMT_INVALID);
+		parser_error(l, "erroneous token");
+		return stmt_new(STMT_INVALID);
 	}
 
 	if (!next_is(l, T_NEWLINE) && !expect(l, T_EOF, "expected end of line"))
@@ -175,13 +163,11 @@ struct stmt *parse(struct lexer *l)
 	else
 		u_arena_clear(&allocator);
 	
-	current_program_address = 0x0000;
-
 	struct stmt *stmts = u_arena_alloc(&allocator, sizeof(*stmts));
 	u_list_init(stmts);
 
 	for (;;) {
-		struct stmt *s = parse_statement(l);
+		struct stmt *s = parse_stmt(l);
 		if (!s)
 			break;
 		u_list_append(stmts, s);

@@ -22,14 +22,11 @@ struct stmt {
 	union {
 		struct {
 			size_t nops;
-			struct token type;
+			struct token token;
 			struct token ops[STMT_MAX_OPERANDS];
 		} ins;
 
-		struct {
-			uint16_t addr;
-			struct token token;
-		} label;
+		struct token label;
 	};
 
 	struct stmt *next;
