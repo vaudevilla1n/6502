@@ -111,12 +111,8 @@ static struct stmt *parse_instruction(struct lexer *l)
 	struct stmt *s = stmt_new(STMT_INSTRUCTION);
 	s->ins.token = lexer_next_token(l);
 	s->ins.nops = 0;
-
 	parse_operands(l, s);
 	
-	if (s->type == STMT_INVALID)
-		return s;
-
 	return s;
 }
 
