@@ -14,8 +14,10 @@
 #include <unistd.h>
 #include <stdbool.h>
 
-enum machine_state {
+enum machine_state : uint8_t {
 	MACHINE_OK,
+	MACHINE_BAD_ROM_PATH,
+	MACHINE_BAD_ROM_SIZE,
 	MACHINE_INVALID_OPCODE,
 	MACHINE_OUT_OF_BOUNDS,
 	MACHINE_STACK_OVERFLOW,
@@ -24,11 +26,7 @@ enum machine_state {
 
 struct machine {
 	enum machine_state state;
-
 	enum addressing_mode addr_mode;
-	
-	size_t rom_size;
-	const uint8_t *rom;
 	
 	uint16_t pc;
 	uint8_t reg[REGISTER_COUNT];
@@ -38,32 +36,9 @@ struct machine {
 	uint8_t memory[MEMORY_AVAILABLE];
 };
 
-static void machine_init(struct machine *m, const uint8_t *rom, size_t size);
+static void machine_init(struct machine *m);
+static int machine_load_rom(struct machine *m, const char *path);
 static int machine_run(struct machine *m);
-
-static uint8_t *read_bytes(const char *path, size_t *datlen)
-{
-	FILE *f = fopen(path, "r");
-	if (!f)
-		return 0;
-
-	if (fseek(f, 0, SEEK_END))
-		goto cleanup_file;
-	size_t filelen = ftell(f);
-	rewind(f);
-
-	uint8_t *dat = calloc(filelen, sizeof(*dat));
-	if (!dat)
-		goto cleanup_file;
-	size_t len = fread(dat, sizeof(*dat), filelen, f);
-
-	*datlen = len;
-	return dat;
-
-cleanup_file:
-	fclose(f);
-	return 0;
-}
 
 static inline void dump_bytes(const uint8_t *rom, size_t size)
 {
@@ -150,15 +125,19 @@ int main(int argc, char **argv)
 	return m.state != MACHINE_OK;
 }
 
-static void machine_init(struct machine *m, const uint8_t *rom, size_t size)
+static void machine_init(struct machine *m)
 {
 	m->state = MACHINE_OK;
 	m->addr_mode = ADDR_MODE_INVALID;
-	m->rom = rom;
-	m->rom_size = size;
 	m->reg[REG_S] = STACK_PAGE_START;
 }
 
+static void machine_load(struct machine *m)
+{
+	m->state = MACHINE_OK;
+	m->addr_mode = ADDR_MODE_INVALID;
+	m->reg[REG_S] = STACK_PAGE_START;
+}
 /*
   since the error is already propagated through the machine structure
   itself, these functions (machine_step_*) simply return 0

@@ -54,19 +54,6 @@ int main(int argc, char **argv)
 		
 		struct stmt *stmts = parse(&l);
 
-		u_list_for_each(&assembler_error_list, e) { 
-			printf("%s:%zu:%zu:error %s: '%.*s'\n", e->file, e->token.line, e->token.col, e->msg, (int)e->token.len, e->token.text);
-		}
-
-		u_list_for_each(stmts, stmt) {
-			switch (stmt->type) {
-			case STMT_INVALID:	printf("invalid\n"); break;
-			case STMT_LABEL:	printf("%.*s\n", (int)stmt->label.len, stmt->label.text); break;
-			case STMT_INSTRUCTION:	printf("%.*s\n", (int)stmt->ins.token.len, stmt->ins.token.text); break;
-			default: u_unreachable("for_each stmt");
-			}
-		}
-
 		assembler_error_list_clear();
 	}
 }
