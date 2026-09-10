@@ -5,23 +5,94 @@
 	  https://en.wikipedia.org/wiki/MOS_Technology_6502
 	  https://6502.org
 	  https://llx.com/Neil/a2/opcodes.html (!!!)
+	  https://wilsonminesco.com/6502primer
  */
 #include "util.h"
-#include "6502_constants.h"
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdbool.h>
 
+#define KB(n)	((n) * (2 << 10))
+
+#define ZERO_PAGE_LEN		256
+#define ZERO_PAGE_START		0x0000
+
+#define STACK_PAGE_LEN		256
+#define STACK_PAGE_START	0x00FF
+
+#define MEMORY_AVAILABLE	KB(64)
+
+#define INT_HANDLER		0xFFFA
+#define POW_HANDLER		0XFFFC
+#define IRQ_HANDLER		0xFFFE
+
+#define CPU_CLOCK_RATE_US	3
+
+enum instruction : uint8_t {
+	INS_INVALID,
+
+	// JMA -> JMP ABSOLUTE
+	INS_BIT, INS_JMP, INS_JMA, INS_STY, INS_LDY, INS_CPY, INS_CPX,
+	INS_ORA = 0x01, INS_AND, INS_EOR, INS_ADC, INS_STA, INS_LDA, INS_CMP, INS_SBC,
+	INS_ASL, INS_ROL, INS_LSR, INS_ROR, INS_STX, INS_LDX, INS_DEC, INS_INC,
+
+	INS_BRK, INS_JSR, INS_RTI, INS_RTS,
+	INS_BPL, INS_BMI, INS_BVC, INS_BVS,
+	INS_BCC, INS_BCS, INS_BNE, INS_BEQ,
+	INS_PHP, INS_PLP, INS_PHA, INS_PLA,
+	INS_DEY, INS_TAY, INS_INY, INS_INX,
+	INS_CLC, INS_SEC, INS_CLI, INS_SEI,
+	INS_TYA, INS_CLV, INS_CLD, INS_SED,
+	INS_TXA, INS_TXS, INS_TAX, INS_TSX,
+	INS_DEX, INS_NOP,
+};
+
 enum machine_state : uint8_t {
-	MACHINE_OK,
-	MACHINE_BAD_ROM_PATH,
-	MACHINE_BAD_ROM_SIZE,
-	MACHINE_INVALID_OPCODE,
-	MACHINE_OUT_OF_BOUNDS,
-	MACHINE_STACK_OVERFLOW,
-	MACHINE_STACK_UNDERFLOW,
+	MACHINE_OK, // all's well
+	MACHINE_EOP, // invalid opcode
+	MACHINE_EOOB, // out of bounds
+	MACHINE_ESOF, // stack overflow
+	MACHINE_ESUF, // stack underflow
+};
+
+enum addressing_mode {
+	ADDR_MODE_INVALID,
+	
+	ADDR_MODE_IMP,
+	ADDR_MODE_IMM,
+	ADDR_MODE_ACC,
+	ADDR_MODE_REL,
+	ADDR_MODE_ZERO,
+	ADDR_MODE_ZERO_X,
+	ADDR_MODE_ZERO_Y,
+	ADDR_MODE_ABS,
+	ADDR_MODE_ABS_X,
+	ADDR_MODE_ABS_Y,
+	ADDR_MODE_IND,
+	ADDR_MODE_IND_X,
+	ADDR_MODE_IND_Y,
+};
+
+enum machine_register : uint8_t {
+	REG_A,
+	REG_PS,
+	REG_S,
+	REG_X,
+	REG_Y,
+	
+	REGISTER_END,
+};
+
+enum : uint8_t {
+	PS_CARRY,
+	PS_ZERO,
+	PS_INTERRUPT_DISABLE,
+	PS_DECIMAL_MODE,
+	PS_BREAK,
+	PS_OVERFLOW,
+	PS_NEGATIVE,
 };
 
 struct machine {
